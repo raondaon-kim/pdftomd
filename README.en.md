@@ -233,7 +233,28 @@ cp .env.example .env
 
 See [§6 Environment variables](#6-environment-variables) for every option.
 
-### 5.3 Backend (port 9007)
+### 5.3 ⭐ Windows: launch with one double-click (recommended)
+
+Easiest path. This is what we ship to non-developer coworkers.
+
+Double-click `start_server.bat` and it will:
+
+1. If 9007 / 9017 are already in use, print the offending PID and the `taskkill` command, then exit and ask the user to re-run
+2. On first launch, install backend / frontend dependencies (`pip install -e .` + `npm install`)
+3. Start the backend (9007) in its own console window and wait for `/health` to respond
+4. Start the frontend (9017) in another console window and wait for it to respond
+5. Open http://localhost:9017 in the default browser
+6. The launcher window closes itself after 5 seconds; the backend / frontend windows stay up
+
+To stop, double-click `stop_server.bat` (or simply close the backend / frontend console windows).
+
+> **Deployment note**: the bat anchors itself with `%~dp0` so it works no matter which drive or folder it sits in (spaces and Korean characters in the path are fine). **Pre-reqs**: Python 3.11+ and Node 20+ on PATH, and a `.env` at the project root (copy `.env.example` and fill in a key).
+>
+> **Encoding note**: messages are ASCII-only on purpose. `chcp 65001` (UTF-8) is *not* used because it is known to break the cmd interpreter on some Windows 10 builds. Korean folder names may render as mojibake if they appear in error messages, but the script itself works end-to-end.
+
+### 5.4 Manual run (for development / macOS / Linux)
+
+#### Backend (port 9007)
 
 ```bash
 cd backend
@@ -251,7 +272,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 9007 --reload
 
 **Verify**: visit http://127.0.0.1:9007/health → `{"status":"ok", ...}`
 
-### 5.4 Frontend (port 9017)
+#### Frontend (port 9017)
 
 In a new terminal:
 
