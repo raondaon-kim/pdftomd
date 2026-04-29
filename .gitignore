@@ -1,0 +1,53 @@
+# Secrets
+.env
+.env.local
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+build/
+dist/
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+npm-debug.log*
+
+# Data (runtime artifacts)
+data/uploads/
+data/outputs/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local PDFs — never commit user lecture material
+# (matches root-level 01.pdf, 02.pdf, test.pdf, and the golden input.pdf)
+*.pdf
+
+# Inspection scripts / temp folders
+/tmp_*/
+_inspect_*
+
+# Smoke-test outputs — keep only docs / reports under output/
+output/*
+!output/README.md
+!output/*report*.md
+
+# Smoke-test outputs (v2 model comparison runs)
+output_v2/
+
+# Server runtime logs
+.runtime/

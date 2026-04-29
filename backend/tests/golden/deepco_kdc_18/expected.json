@@ -1,0 +1,383 @@
+{
+  "$schema_note": "Per-page expected output for test.pdf (deepco_kdc_18.pdf). Loose-match assertions used by golden eval per docs/TESTING.md §2.",
+  "pdf_filename": "deepco_kdc_18",
+  "total_pages": 28,
+  "lecture_context": {
+    "title_contains": ["데이터 분석", "앱"],
+    "key_terms_must_include": [
+      "PAPS",
+      "AI 모델러",
+      "TABULAR",
+      "공공데이터",
+      "비만도",
+      "독립변수",
+      "종속변수",
+      "회귀",
+      "분류"
+    ],
+    "domain_hints_must_include": ["AI", "교육"]
+  },
+  "expected_classification_breakdown": {
+    "content": 14,
+    "section_divider": 7,
+    "cover": 2,
+    "decorative_only": 2,
+    "_note": "Some judgment calls: p.3-4 layout could be argued either way (large headline numbers + outline). Treat counts as approximate targets; per-page assertions below take precedence."
+  },
+  "pages": [
+    {
+      "page_num": 1,
+      "classification": "cover",
+      "title_contains": [],
+      "should_have_image": false
+    },
+    {
+      "page_num": 2,
+      "classification": "section_divider",
+      "title_contains": ["오늘", "학습"],
+      "should_have_image": false
+    },
+    {
+      "page_num": 3,
+      "classification": "content",
+      "title_contains": ["학습", "목표"],
+      "markdown_must_contain": [
+        "데이터 분석 모델",
+        "공공데이터",
+        "AI 모델러",
+        "비만도",
+        "PAPS"
+      ],
+      "should_have_image": false,
+      "_note": "4 numbered learning objectives. Self-contained as text; no diagram value-add."
+    },
+    {
+      "page_num": 4,
+      "classification": "content",
+      "title_contains": ["학습", "흐름"],
+      "markdown_must_contain": [
+        "데이터 분석 모델",
+        "공공데이터",
+        "PAPS",
+        "비만도"
+      ],
+      "should_have_image": false,
+      "_note": "5-step lesson flow. Could be rendered as ordered list."
+    },
+    {
+      "page_num": 5,
+      "classification": "section_divider",
+      "title_contains": ["데이터", "분석", "모델"],
+      "should_have_image": false
+    },
+    {
+      "page_num": 6,
+      "classification": "content",
+      "title_contains": ["데이터", "분석", "모델"],
+      "markdown_must_contain": [
+        "데이터 분석 모델",
+        "지도학습",
+        "분류",
+        "회귀",
+        "독립",
+        "종속"
+      ],
+      "should_have_image": false,
+      "_note": "Comparison boxes. Pure text, no image attachment needed (per LLM_PROMPTS §0 example 2)."
+    },
+    {
+      "page_num": 7,
+      "classification": "content",
+      "title_contains": ["데이터", "분석", "모델"],
+      "markdown_must_contain": [
+        "데이터 수집",
+        "전처리",
+        "독립",
+        "종속"
+      ],
+      "should_have_image": true,
+      "expected_bbox_loose": {
+        "x_min_max": 200,
+        "y_min_max": 250,
+        "x_max_min": 800,
+        "y_max_min": 800
+      },
+      "_note": "Critical page: 5-step flow + variable definitions + example table. Visual flow useful as supplemental image."
+    },
+    {
+      "page_num": 8,
+      "classification": "section_divider",
+      "title_contains": ["공공데이터"],
+      "should_have_image": false
+    },
+    {
+      "page_num": 9,
+      "classification": "content",
+      "title_contains": ["공공데이터"],
+      "markdown_must_contain": [
+        "공공데이터",
+        "민간데이터",
+        "무료",
+        "신뢰성",
+        "기상청",
+        "PAPS"
+      ],
+      "should_have_image": false,
+      "_note": "Comparison + 5 example icons with labels. Text expansion of icon labels is sufficient."
+    },
+    {
+      "page_num": 10,
+      "classification": "content",
+      "title_contains": ["공공데이터"],
+      "markdown_must_contain": [
+        "사회문제",
+        "AI",
+        "PAPS",
+        "미세먼지"
+      ],
+      "should_have_image": false
+    },
+    {
+      "page_num": 11,
+      "classification": "content",
+      "title_contains": ["공공데이터", "찾는법"],
+      "markdown_must_contain": [
+        "data.go.kr",
+        "키워드",
+        "다운로드"
+      ],
+      "should_have_image": true,
+      "expected_bbox_loose": {
+        "x_min_max": 200,
+        "y_min_max": 250,
+        "x_max_min": 800,
+        "y_max_min": 800
+      },
+      "_note": "data.go.kr UI screenshots — visual context valuable."
+    },
+    {
+      "page_num": 12,
+      "classification": "content",
+      "title_contains": ["공공데이터", "PAPS"],
+      "markdown_must_contain": [
+        "PAPS"
+      ],
+      "should_have_image": true,
+      "expected_bbox_loose": {
+        "x_min_max": 200,
+        "y_min_max": 250,
+        "x_max_min": 800,
+        "y_max_min": 800
+      },
+      "_note": "PAPS data preview — image likely shows data sample."
+    },
+    {
+      "page_num": 13,
+      "classification": "section_divider",
+      "title_contains": ["PAPS", "비만도"],
+      "should_have_image": false
+    },
+    {
+      "page_num": 14,
+      "classification": "content",
+      "title_contains": ["PAPS", "비만도"],
+      "markdown_must_contain": [
+        "데이터 분석 모델",
+        "AI"
+      ],
+      "should_have_image": true,
+      "expected_bbox_loose": {
+        "x_min_max": 200,
+        "y_min_max": 250,
+        "x_max_min": 800,
+        "y_max_min": 800
+      },
+      "_note": "App design diagram — relationship between data model and AI app."
+    },
+    {
+      "page_num": 15,
+      "classification": "content",
+      "title_contains": ["PAPS", "비만도"],
+      "markdown_must_contain": [
+        "앱"
+      ],
+      "should_have_image": true,
+      "expected_bbox_loose": {
+        "x_min_max": 200,
+        "y_min_max": 250,
+        "x_max_min": 800,
+        "y_max_min": 800
+      },
+      "_note": "App preview screenshot — visual essential."
+    },
+    {
+      "page_num": 16,
+      "classification": "section_divider",
+      "title_contains": ["데이터", "분석", "모델"],
+      "should_have_image": false
+    },
+    {
+      "page_num": 17,
+      "classification": "content",
+      "title_contains": ["데이터", "준비"],
+      "markdown_must_contain": [
+        "PAPS",
+        "다운로드"
+      ],
+      "should_have_image": true,
+      "expected_bbox_loose": {
+        "x_min_max": 200,
+        "y_min_max": 250,
+        "x_max_min": 800,
+        "y_max_min": 800
+      }
+    },
+    {
+      "page_num": 18,
+      "classification": "content",
+      "title_contains": ["데이터", "분석", "모델"],
+      "markdown_must_contain": [
+        "AI 모델러",
+        "PAPS",
+        "csv",
+        "독립변수",
+        "종속변수",
+        "TABULAR"
+      ],
+      "should_have_image": true,
+      "expected_bbox_loose": {
+        "x_min_max": 200,
+        "y_min_max": 250,
+        "x_max_min": 800,
+        "y_max_min": 800
+      },
+      "_note": "AI 모델러 UI screenshot with model parameters — example 3 in LLM_PROMPTS §2."
+    },
+    {
+      "page_num": 19,
+      "classification": "decorative_only",
+      "title_contains": ["실습", "영상"],
+      "should_have_image": false,
+      "_note": "Practice video reminder — illustration only, no learning content."
+    },
+    {
+      "page_num": 20,
+      "classification": "section_divider",
+      "title_contains": ["PAPS", "비만도"],
+      "should_have_image": false
+    },
+    {
+      "page_num": 21,
+      "classification": "content",
+      "title_contains": ["앱", "화면"],
+      "markdown_must_contain": [
+        "PAPS",
+        "비만도",
+        "학년",
+        "예측"
+      ],
+      "should_have_image": true,
+      "expected_bbox_loose": {
+        "x_min_max": 200,
+        "y_min_max": 250,
+        "x_max_min": 800,
+        "y_max_min": 800
+      },
+      "_note": "App main screen with usage steps."
+    },
+    {
+      "page_num": 22,
+      "classification": "decorative_only",
+      "title_contains": ["실습", "영상"],
+      "should_have_image": false
+    },
+    {
+      "page_num": 23,
+      "classification": "content",
+      "title_contains": ["1번", "화면", "정답", "코드"],
+      "markdown_must_contain": [],
+      "should_have_image": true,
+      "expected_bbox_loose": {
+        "x_min_max": 200,
+        "y_min_max": 250,
+        "x_max_min": 800,
+        "y_max_min": 800
+      },
+      "_note": "Block code capture — visual essential. Markdown body may be sparse with image reference."
+    },
+    {
+      "page_num": 24,
+      "classification": "content",
+      "title_contains": ["2번", "화면", "정답", "코드"],
+      "markdown_must_contain": [],
+      "should_have_image": true,
+      "expected_bbox_loose": {
+        "x_min_max": 200,
+        "y_min_max": 250,
+        "x_max_min": 800,
+        "y_max_min": 800
+      },
+      "_note": "Block code capture — visual essential."
+    },
+    {
+      "page_num": 25,
+      "classification": "content",
+      "title_contains": ["2번", "화면", "정답", "코드"],
+      "markdown_must_contain": [],
+      "should_have_image": true,
+      "expected_bbox_loose": {
+        "x_min_max": 200,
+        "y_min_max": 250,
+        "x_max_min": 800,
+        "y_max_min": 800
+      },
+      "_note": "Block code capture — visual essential."
+    },
+    {
+      "page_num": 26,
+      "classification": "section_divider",
+      "title_contains": ["학습", "마무리"],
+      "should_have_image": false
+    },
+    {
+      "page_num": 27,
+      "classification": "content",
+      "title_contains": ["오늘", "학습", "정리"],
+      "markdown_must_contain": [
+        "데이터 분석 모델",
+        "공공데이터",
+        "AI 모델러",
+        "비만도",
+        "PAPS"
+      ],
+      "should_have_image": false,
+      "_note": "Recap of 4 learning objectives — text only."
+    },
+    {
+      "page_num": 28,
+      "classification": "cover",
+      "title_contains": [],
+      "should_have_image": false,
+      "_note": "Closing page (\"다음 시간에 만나요!\")."
+    }
+  ],
+  "hallucination_red_flags": {
+    "_note": "Words/numbers from prior LLM_PROMPTS examples that DO NOT appear in this PDF's plain text. If they show up in output, it's likely hallucination. Verify against page text before flagging (some may genuinely appear in the slide images).",
+    "terms": [
+      "BMI",
+      "DNN",
+      "MSE",
+      "에포크",
+      "Loss",
+      "고도비만",
+      "경도비만",
+      "과체중",
+      "심폐지구력",
+      "유연성",
+      "근지구력",
+      "순발력",
+      "0.0779",
+      "0.0142"
+    ]
+  }
+}
