@@ -40,10 +40,15 @@ from app.pipeline.providers.schemas import pydantic_to_gemini_schema
 
 log = logging.getLogger(__name__)
 
-# Gemini occasionally writes long markdown with tables; 4096 tokens is too tight
-# (we hit truncation on p.17 of test.pdf). 8192 leaves headroom; cost impact is
-# negligible since we charge for emitted tokens only.
-_MAX_OUTPUT_TOKENS = 8192
+# We let the model emit as much as the vendor permits per response. Both
+# Gemini 2.5 Flash and Gemini 3 Flash advertise a 65,536-token output cap. We
+# bill on emitted tokens only, so leaving the ceiling high costs nothing for
+# typical pages (a few KB) and prevents MAX_TOKENS truncation on the rare
+# dense slide (e.g. a slide deep in a Korean lecture full of diagrams).
+_MAX_OUTPUT_TOKENS_BY_VARIANT: dict[str, int] = {
+    "2-5": 65_536,
+    "3": 65_536,
+}
 
 # Pre-built schemas (independent of variant).
 LECTURE_CONTEXT_SCHEMA = pydantic_to_gemini_schema(LectureContext)
@@ -150,7 +155,7 @@ class GeminiProvider:
             "response_mime_type": "application/json",
             "response_schema": schema,
             "temperature": self.temperature,
-            "max_output_tokens": _MAX_OUTPUT_TOKENS,
+            "max_output_tokens": _MAX_OUTPUT_TOKENS_BY_VARIANT[self.variant],
             "system_instruction": system,
         }
         if self.thinking_level:
@@ -208,8 +213,8 @@ class GeminiProvider:
             hint = ""
             if finish and "MAX_TOKENS" in str(finish):
                 hint = (
-                    " (response was truncated by max_output_tokens; consider "
-                    "raising _MAX_OUTPUT_TOKENS)"
+                    " (response was truncated by max_output_tokens; "
+                    "raise _MAX_OUTPUT_TOKENS_BY_VARIANT or split the page)"
                 )
             raise LLMSchemaValidationError(
                 f"Gemini response was not valid JSON{hint}: {e}\n"

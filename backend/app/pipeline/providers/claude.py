@@ -28,7 +28,10 @@ from app.pipeline.providers.registry import CLAUDE_HAIKU_4_5, VENDOR_MODEL_IDS
 
 log = logging.getLogger(__name__)
 
-_MAX_TOKENS = 4096
+# Claude Haiku 4.5 advertises a 64K-token output cap. We bill on emitted
+# tokens only, so leaving the ceiling at the vendor max costs nothing for
+# typical pages and prevents truncation on dense slides.
+_MAX_TOKENS = 64_000
 _TEMPERATURE = 0.0
 
 
