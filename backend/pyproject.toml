@@ -22,6 +22,14 @@ dependencies = [
     # LLM SDKs
     "anthropic>=0.40",
     "google-genai>=0.3",
+    # google-genai uses google.api_core for typed exceptions (auth/quota/timeout
+    # branching in providers/gemini.py). Not always pulled in transitively on a
+    # clean install, so we declare it explicitly.
+    "google-api-core>=2.15",
+    # google-genai uses google.api_core for typed exceptions (auth/quota/timeout
+    # branching in providers/gemini.py). It is not always pulled in transitively
+    # on a clean install, so we declare it explicitly.
+    "google-api-core>=2.15",
     # Misc
     "python-dotenv>=1.0",
     "httpx>=0.27",

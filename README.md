@@ -540,6 +540,8 @@ python tests/eval_classification.py path/to/output_dir
 | 증상 | 원인 / 해결 |
 |---|---|
 | 백엔드가 `RuntimeError: No LLM API key configured`로 죽음 | `.env`에 `ANTHROPIC_API_KEY` 또는 `GEMINI_API_KEY` 중 하나는 채워야 합니다. `.env`는 프로젝트 루트(=`backend/`의 부모)에 위치 |
+| `ModuleNotFoundError: No module named 'google.api_core'` (또는 다른 빠진 모듈) | 의존성이 동기화되지 않았습니다. `start_server.bat`을 다시 실행하면 `pip install -e .`이 자동으로 빠진 패키지를 설치합니다. 수동으로 하려면 `cd backend && python -m pip install -e .` |
+| `git pull` 후 의존성 누락 에러 | 누군가 `pyproject.toml`이나 `package.json`을 갱신했을 때 발생. `start_server.bat`이 매 실행마다 `pip install -e .` + `npm install`을 돌려 자동 동기화하므로 그냥 다시 실행하면 됩니다 |
 | `/health`의 `data_dir`이 `\data` 또는 `D:\data`처럼 이상함 | `.env`에 `DATA_DIR=/data`처럼 절대 루트가 들어간 경우. `DATA_DIR=./data`로 바꾸세요 (상대 경로는 프로젝트 루트 기준으로 자동 해석됨) |
 | 포트 9007/9017이 이미 사용 중 | (Win) `Get-NetTCPConnection -LocalPort 9007 -State Listen` 후 `Stop-Process -Id <PID>`. (\*nix) `lsof -i :9007` 후 `kill <PID>` |
 | `MODEL_NOT_AVAILABLE` 응답 | 해당 모델 키가 `.env`에 없음. `/models`로 enabled 모델 확인 |

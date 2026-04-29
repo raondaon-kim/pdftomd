@@ -109,40 +109,37 @@ call :check_port %FRONTEND_PORT% frontend
 if errorlevel 1 goto :fail
 
 REM ---------------------------------------------------------------------------
-REM  3. Install backend deps if needed.
+REM  3. Install/refresh backend deps. We always run `pip install -e .` so
+REM     pyproject.toml changes (new packages, version bumps) are picked up
+REM     automatically after a `git pull`. Already-satisfied requirements take
+REM     only a few seconds, so this is cheap on subsequent runs.
 REM ---------------------------------------------------------------------------
-echo [STEP] Verifying backend dependencies...
-python -c "import fastapi, uvicorn, anthropic, google.genai, fitz, pdfplumber" >nul 2>&1
-if errorlevel 1 (
-    echo        Installing backend dependencies ^(first run only^)...
-    pushd "%BACKEND_DIR%"
-    python -m pip install --disable-pip-version-check -e .
-    set "PIP_RC=!ERRORLEVEL!"
-    popd
-    if not "!PIP_RC!"=="0" (
-        echo [ERROR] pip install failed ^(exit !PIP_RC!^). See output above.
-        goto :fail
-    )
-) else (
-    echo        OK
+echo [STEP] Syncing backend dependencies ^(pip install -e .^)...
+pushd "%BACKEND_DIR%"
+python -m pip install --disable-pip-version-check -e .
+set "PIP_RC=!ERRORLEVEL!"
+popd
+if not "!PIP_RC!"=="0" (
+    echo [ERROR] pip install failed ^(exit !PIP_RC!^). See output above.
+    goto :fail
 )
 
 REM ---------------------------------------------------------------------------
-REM  4. Install frontend deps if needed.
+REM  4. Install/refresh frontend deps. `npm install` against an existing
+REM     node_modules + lockfile is a fast no-op when nothing changed, so we
+REM     run it every time to pick up package.json / package-lock.json updates.
 REM ---------------------------------------------------------------------------
-echo [STEP] Verifying frontend dependencies...
+echo [STEP] Syncing frontend dependencies ^(npm install^)...
 if not exist "%FRONTEND_DIR%\node_modules\next\package.json" (
-    echo        Installing frontend dependencies ^(first run only, may take a minute^)...
-    pushd "%FRONTEND_DIR%"
-    call npm install --no-audit --no-fund
-    set "NPM_RC=!ERRORLEVEL!"
-    popd
-    if not "!NPM_RC!"=="0" (
-        echo [ERROR] npm install failed ^(exit !NPM_RC!^). See output above.
-        goto :fail
-    )
-) else (
-    echo        OK
+    echo        First-time install, may take a minute...
+)
+pushd "%FRONTEND_DIR%"
+call npm install --no-audit --no-fund
+set "NPM_RC=!ERRORLEVEL!"
+popd
+if not "!NPM_RC!"=="0" (
+    echo [ERROR] npm install failed ^(exit !NPM_RC!^). See output above.
+    goto :fail
 )
 
 REM ---------------------------------------------------------------------------

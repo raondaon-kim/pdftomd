@@ -543,6 +543,8 @@ Compares the classifications in your run against `tests/golden/deepco_kdc_18/exp
 | Symptom | Cause / fix |
 |---|---|
 | Backend dies with `RuntimeError: No LLM API key configured` | At least one of `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` must be set in `.env`. The `.env` file goes at the project root (the parent of `backend/`) |
+| `ModuleNotFoundError: No module named 'google.api_core'` (or any other missing module) | Dependencies are out of sync. Re-run `start_server.bat` — it runs `pip install -e .` every time, so missing packages get installed automatically. Manual: `cd backend && python -m pip install -e .` |
+| Missing dependency error after `git pull` | Someone bumped `pyproject.toml` or `package.json`. `start_server.bat` re-runs `pip install -e .` + `npm install` on every launch, so just run it again to sync |
 | `/health` reports `data_dir` as `\data` or `D:\data` | Your `.env` has something like `DATA_DIR=/data`, which resolves to the drive root. Use `DATA_DIR=./data` instead — relative paths resolve against the project root |
 | Ports 9007 / 9017 already in use | (Win) `Get-NetTCPConnection -LocalPort 9007 -State Listen`, then `Stop-Process -Id <PID>`. (\*nix) `lsof -i :9007`, then `kill <PID>` |
 | `MODEL_NOT_AVAILABLE` response | The relevant key is missing from `.env`. Hit `/models` to see which are enabled |
