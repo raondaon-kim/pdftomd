@@ -547,19 +547,46 @@ python tests/eval_classification.py path/to/output_dir
 
 Compares the classifications in your run against `tests/golden/deepco_kdc_18/expected.json`.
 
-### 10.4 Token usage log
+### 10.4 Token usage + cost log
 
-Every completed PDF run appends one JSONL record to `<DATA_DIR>/logs/usage.log`. Use it for cost tracking and average-tokens-per-page analysis.
+Every completed PDF run appends one JSONL record to `<DATA_DIR>/logs/usage.log`. Use it for cost tracking, per-page averages, and per-job cost attribution.
 
 ```jsonl
-{"ts":"2026-04-29T15:21:30+00:00","pdf":"lecture.pdf","model":"gpt-5.4-mini","input_tokens":12345,"output_tokens":6789,"total_tokens":19134,"pages":28,"ok":true}
-{"ts":"2026-04-29T15:30:11+00:00","pdf":"broken.pdf","model":"gemini-3-flash","input_tokens":2400,"output_tokens":0,"total_tokens":2400,"pages":0,"ok":false,"error":"LLMSchemaValidationError: ..."}
+{"ts":"2026-04-29T15:21:30+00:00","job_id":"550e...","pdf":"lecture.pdf","model":"gpt-5.4-mini","input_tokens":169349,"output_tokens":11412,"total_tokens":180761,"pages":28,"input_cost_usd":0.127012,"output_cost_usd":0.051354,"total_cost_usd":0.178366,"ok":true}
+{"ts":"2026-04-29T15:30:11+00:00","job_id":"abc1...","pdf":"broken.pdf","model":"gemini-3-flash","input_tokens":2400,"output_tokens":0,"total_tokens":2400,"pages":0,"input_cost_usd":0.0012,"output_cost_usd":0.0,"total_cost_usd":0.0012,"ok":false,"error":"LLMSchemaValidationError: ..."}
 ```
 
-- Records both successes and failures (`ok: false` plus an `error` field on failure).
-- Each adapter accumulates the SDK-reported usage: Anthropic `usage.input_tokens` / `usage.output_tokens`, Google `usage_metadata.{prompt,candidates}_token_count`, OpenAI `usage.{prompt,completion}_tokens`.
-- Aggregate quickly with e.g. `jq -s 'group_by(.model) | map({model:.[0].model, total:map(.total_tokens) | add})' usage.log`.
-- The CLI also prints `tokens: input=... output=... total=...` to stderr at the end of a run.
+**Fields**
+
+- `pdf` — the **original filename** the user uploaded (not the backend's stable `input.pdf`).
+- `job_id` — matches the outputs/uploads directory for the run.
+- `model`, `input_tokens`, `output_tokens`, `total_tokens`, `pages`.
+- `input_cost_usd`, `output_cost_usd`, `total_cost_usd` — USD estimate based on the vendor list price table (rounded to 6 decimal places).
+- `ok` — success/failure. Failures get an `error` field too.
+
+**Price table** (USD per 1M tokens, April 2026; single source: `MODEL_PRICES_USD_PER_M` in `app/pipeline/usage_log.py`)
+
+| Model | Input | Output |
+|---|---|---|
+| `claude-haiku-4-5` | $1.00 | $5.00 |
+| `gemini-2-5-flash` | $0.30 | $2.50 |
+| `gemini-3-flash` | $0.50 | $3.00 |
+| `gpt-5-mini` | $0.25 | $2.00 |
+| `gpt-5.4-mini` | $0.75 | $4.50 |
+
+**SDK token sources** — Anthropic `usage.{input,output}_tokens`, Google `usage_metadata.{prompt,candidates}_token_count`, OpenAI `usage.{prompt,completion}_tokens`.
+
+**Aggregation (jq)**
+
+```bash
+# Cumulative cost per model
+jq -s 'group_by(.model) | map({model:.[0].model, total_cost_usd: (map(.total_cost_usd // 0) | add)})' data/logs/usage.log
+
+# Five most expensive PDFs
+jq -s 'sort_by(-.total_cost_usd)[0:5] | map({pdf,model,total_cost_usd})' data/logs/usage.log
+```
+
+**CLI** also prints `tokens: input=... output=... total=...` and `cost: ~$0.1784 USD` to stderr at the end of a run.
 
 ## 11. Troubleshooting
 

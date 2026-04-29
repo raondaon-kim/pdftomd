@@ -68,14 +68,19 @@ def run_pipeline(
     keep_pages_dir: bool = False,
     on_progress: ProgressReporter | None = None,
     usage_log_dir: str | Path | None = None,
+    original_pdf_filename: str | None = None,
+    job_id: str | None = None,
 ) -> PipelineResult:
     """Run the full PDF -> ZIP pipeline.
 
     Steps mirror docs/ARCHITECTURE.md §4. M1.a uses a dummy LectureContext.
 
     ``usage_log_dir`` (when provided) receives a JSONL line summarising the
-    job's token usage on completion *and* on failure. The log entry uses the
-    PDF's original filename so operators can correlate cost to source.
+    job's token usage on completion *and* on failure. ``original_pdf_filename``
+    overrides the on-disk filename used in the log entry — the API saves
+    uploads as ``input.pdf``, so the worker passes the user-visible original
+    name here. ``job_id`` is also added to the log when provided so operators
+    can correlate a cost line back to a specific job's outputs/uploads dir.
     """
     report = on_progress or _noop_reporter
 
@@ -83,6 +88,7 @@ def run_pipeline(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     usage_log_dir = Path(usage_log_dir) if usage_log_dir is not None else None
+    log_pdf_name = original_pdf_filename or pdf_path.name
 
     pdf_filename = pdf_path.stem  # e.g. "deepco_kdc_18"
 
@@ -96,12 +102,13 @@ def run_pipeline(
         if usage_log_dir is not None:
             append_usage_record(
                 log_dir=usage_log_dir,
-                pdf_filename=pdf_path.name,
+                pdf_filename=log_pdf_name,
                 model_id=provider.name,
                 input_tokens=getattr(provider, "total_input_tokens", 0),
                 output_tokens=getattr(provider, "total_output_tokens", 0),
                 pages=0,
                 ok=False,
+                job_id=job_id,
                 error=f"{type(e).__name__}: {e}",
             )
         raise
@@ -203,12 +210,13 @@ def run_pipeline(
         if usage_log_dir is not None:
             append_usage_record(
                 log_dir=usage_log_dir,
-                pdf_filename=pdf_path.name,
+                pdf_filename=log_pdf_name,
                 model_id=provider.name,
                 input_tokens=getattr(provider, "total_input_tokens", 0),
                 output_tokens=getattr(provider, "total_output_tokens", 0),
                 pages=total_pages,
                 ok=False,
+                job_id=job_id,
                 error=f"{type(e).__name__}: {e}",
             )
         raise
@@ -217,12 +225,13 @@ def run_pipeline(
     if usage_log_dir is not None:
         append_usage_record(
             log_dir=usage_log_dir,
-            pdf_filename=pdf_path.name,
+            pdf_filename=log_pdf_name,
             model_id=provider.name,
             input_tokens=getattr(provider, "total_input_tokens", 0),
             output_tokens=getattr(provider, "total_output_tokens", 0),
             pages=total_pages,
             ok=True,
+            job_id=job_id,
         )
 
     return PipelineResult(

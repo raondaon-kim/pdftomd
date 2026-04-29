@@ -175,12 +175,20 @@ def main(argv: list[str] | None = None) -> int:
     sys.stderr.write("\n")
     in_tok = getattr(provider, "total_input_tokens", 0)
     out_tok = getattr(provider, "total_output_tokens", 0)
+    cost_line = ""
+    from app.pipeline.usage_log import estimate_cost_usd
+
+    cost = estimate_cost_usd(model_id, in_tok, out_tok)
+    if cost is not None:
+        _, _, total_cost = cost
+        cost_line = f"\n  cost:     ~${total_cost:.4f} USD (estimated)"
     print(
         f"\nDone in {elapsed:.1f}s\n"
         f"  pages:    {len(result.pages)}\n"
         f"  content:  {result.content_md}\n"
         f"  zip:      {result.zip_path}\n"
-        f"  tokens:   input={in_tok:,}  output={out_tok:,}  total={in_tok + out_tok:,}",
+        f"  tokens:   input={in_tok:,}  output={out_tok:,}  total={in_tok + out_tok:,}"
+        f"{cost_line}",
         file=sys.stderr,
     )
     return 0

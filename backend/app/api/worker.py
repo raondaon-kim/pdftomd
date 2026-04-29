@@ -58,6 +58,11 @@ def run_pipeline_job(
         store.mark_failed(job_id, code="LLM_AUTH_ERROR", message=str(e))
         return
 
+    # Fetch the user-visible original filename so the usage log records what
+    # the operator actually uploaded, not the stable on-disk name "input.pdf".
+    job = store.get(job_id)
+    original_pdf_filename = job.pdf_filename if job is not None else None
+
     try:
         run_pipeline(
             pdf_path=Path(pdf_path),
@@ -68,6 +73,8 @@ def run_pipeline_job(
             max_size_mb=settings.max_pdf_size_mb,
             on_progress=_make_progress_reporter(store, job_id),
             usage_log_dir=settings.data_dir / "logs",
+            original_pdf_filename=original_pdf_filename,
+            job_id=job_id,
         )
     except PDFValidationError as e:
         log.warning("PDF validation failed for job %s: %s", job_id, e)

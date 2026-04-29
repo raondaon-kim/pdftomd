@@ -544,19 +544,46 @@ python tests/eval_classification.py path/to/output_dir
 
 `tests/golden/deepco_kdc_18/expected.json`과 분류 결과를 비교합니다.
 
-### 10.4 토큰 사용량 로그
+### 10.4 토큰 사용량 + 비용 로그
 
-각 PDF 처리가 끝나면 `<DATA_DIR>/logs/usage.log`에 JSONL 한 줄이 추가됩니다. 모델별 비용 추적, 평균 토큰 사용량 분석에 활용하세요.
+각 PDF 처리가 끝나면 `<DATA_DIR>/logs/usage.log`에 JSONL 한 줄이 추가됩니다. 모델별 비용 추적, 평균 토큰 사용량 분석, 작업별 비용 추정에 활용하세요.
 
 ```jsonl
-{"ts":"2026-04-29T15:21:30+00:00","pdf":"강의자료.pdf","model":"gpt-5.4-mini","input_tokens":12345,"output_tokens":6789,"total_tokens":19134,"pages":28,"ok":true}
-{"ts":"2026-04-29T15:30:11+00:00","pdf":"broken.pdf","model":"gemini-3-flash","input_tokens":2400,"output_tokens":0,"total_tokens":2400,"pages":0,"ok":false,"error":"LLMSchemaValidationError: ..."}
+{"ts":"2026-04-29T15:21:30+00:00","job_id":"550e...","pdf":"강의자료.pdf","model":"gpt-5.4-mini","input_tokens":169349,"output_tokens":11412,"total_tokens":180761,"pages":28,"input_cost_usd":0.127012,"output_cost_usd":0.051354,"total_cost_usd":0.178366,"ok":true}
+{"ts":"2026-04-29T15:30:11+00:00","job_id":"abc1...","pdf":"broken.pdf","model":"gemini-3-flash","input_tokens":2400,"output_tokens":0,"total_tokens":2400,"pages":0,"input_cost_usd":0.0012,"output_cost_usd":0.0,"total_cost_usd":0.0012,"ok":false,"error":"LLMSchemaValidationError: ..."}
 ```
 
-- 성공/실패 모두 기록됩니다 (실패 시 `ok: false`, `error` 필드 추가).
-- 어댑터는 SDK가 응답에 실어주는 사용량을 누적합니다 — Anthropic `usage.input_tokens` / `usage.output_tokens`, Google `usage_metadata.{prompt,candidates}_token_count`, OpenAI `usage.{prompt,completion}_tokens`.
-- 빠르게 합산하려면 `jq -s 'group_by(.model) | map({model:.[0].model, total:map(.total_tokens) | add})' usage.log` 같은 식으로 집계 가능.
-- CLI 사용 시 작업 종료 stderr에도 `tokens: input=... output=... total=...`가 한 줄 표시됩니다.
+**기록 필드**
+
+- `pdf` — 사용자가 업로드한 **원본 파일명** (백엔드의 임시 `input.pdf`가 아님)
+- `job_id` — outputs/uploads 디렉토리와 매칭되는 작업 ID
+- `model`, `input_tokens`, `output_tokens`, `total_tokens`, `pages`
+- `input_cost_usd`, `output_cost_usd`, `total_cost_usd` — vendor 가격표 기반 USD 추정치 (소수점 6자리 반올림)
+- `ok` — 성공/실패. 실패 시 `error` 필드 추가
+
+**가격표** (USD per 1M tokens, 2026-04 기준 — `app/pipeline/usage_log.py`의 `MODEL_PRICES_USD_PER_M`이 단일 출처)
+
+| 모델 | Input | Output |
+|---|---|---|
+| `claude-haiku-4-5` | $1.00 | $5.00 |
+| `gemini-2-5-flash` | $0.30 | $2.50 |
+| `gemini-3-flash` | $0.50 | $3.00 |
+| `gpt-5-mini` | $0.25 | $2.00 |
+| `gpt-5.4-mini` | $0.75 | $4.50 |
+
+**SDK별 토큰 추출** — Anthropic `usage.input_tokens` / `usage.output_tokens`, Google `usage_metadata.{prompt,candidates}_token_count`, OpenAI `usage.{prompt,completion}_tokens`.
+
+**집계 예시 (jq)**
+
+```bash
+# 모델별 누적 비용
+jq -s 'group_by(.model) | map({model:.[0].model, total_cost_usd: (map(.total_cost_usd // 0) | add)})' data/logs/usage.log
+
+# 가장 비싸게 처리된 PDF 5개
+jq -s 'sort_by(-.total_cost_usd)[0:5] | map({pdf,model,total_cost_usd})' data/logs/usage.log
+```
+
+**CLI 종료 시 stderr에도** `tokens: input=... output=... total=...` 와 `cost: ~$0.1784 USD` 가 한 줄 표시됩니다.
 
 ## 11. 트러블슈팅
 
