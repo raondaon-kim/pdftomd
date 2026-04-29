@@ -499,7 +499,7 @@ Measured against `backend/tests/golden/deepco_kdc_18/input.pdf` (28-page Korean 
 | GPT-5 mini | TBD | TBD | $0.30 | Proven GPT-5 vision + reasoning |
 | GPT-5.4 mini | TBD | TBD | $0.45 | Strong vision + reasoning, great with diagrams |
 
-> Costs are estimates; actual spend depends on page count, text length, and image resolution. The current default in the UI is **GPT-5.4 mini**.
+> Costs are estimates; actual spend depends on page count, text length, and image resolution. The current default in the UI is **GPT-5 mini**.
 
 ## 10. Development
 

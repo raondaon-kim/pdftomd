@@ -41,10 +41,10 @@ export default function UploadPage() {
       .then((data) => {
         if (cancelled) return;
         setModels(data);
-        // Prefer GPT-5.4 mini as the default. Fall back to the first
+        // Prefer GPT-5 mini as the default. Fall back to the first
         // enabled model if it isn't available (key missing).
         const preferred = data.find(
-          (m) => m.id === "gpt-5.4-mini" && m.enabled,
+          (m) => m.id === "gpt-5-mini" && m.enabled,
         );
         const firstEnabled = preferred ?? data.find((m) => m.enabled);
         if (firstEnabled) setSelectedModel(firstEnabled.id);
