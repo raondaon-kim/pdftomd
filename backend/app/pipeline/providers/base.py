@@ -44,7 +44,7 @@ class LLMTransientError(LLMError):
 class ProviderInfo(BaseModel):
     id: str
     display_name: str
-    provider: str  # "anthropic" | "google"
+    provider: str  # "anthropic" | "google" | "openai"
     is_preview: bool
     enabled: bool
     estimated_cost_per_pdf_usd: float
@@ -114,11 +114,21 @@ class LLMProvider(Protocol):
 
     Concrete adapters MUST raise subclasses of ``LLMError`` for any failure so
     the runner can apply uniform retry/strict logic.
+
+    Adapters are also expected to expose running token counters via
+    ``total_input_tokens`` / ``total_output_tokens`` so the runner can write
+    per-job usage logs without each adapter inventing its own counter shape.
     """
 
     name: str
     display_name: str
     is_preview: bool
+
+    # Cumulative tokens consumed during the lifetime of this provider instance
+    # (one provider instance = one job). Adapters update these inside their
+    # private SDK call wrapper; the runner reads them once the job completes.
+    total_input_tokens: int
+    total_output_tokens: int
 
     def call_lecture_context(
         self,

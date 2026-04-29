@@ -5,7 +5,7 @@
 A local single-user web tool that uses LLM Vision to convert PDFs (primarily lecture slides) into **self-contained markdown + cropped images**. The output is structured so that the markdown alone — with no images — already conveys the lesson, by translating the meaning of diagrams, tables, boxes, and arrows into prose.
 
 - 🧠 **2-pass pipeline**: ① extract lecture-wide context (topic, key terms, slide outline) → ② per-page markdown + image-region decisions
-- 🔌 **3 models**: `claude-haiku-4-5` (Anthropic), `gemini-2-5-flash`, `gemini-3-flash` (Google)
+- 🔌 **5 models**: `claude-haiku-4-5` (Anthropic), `gemini-2-5-flash`, `gemini-3-flash` (Google), `gpt-5-mini`, `gpt-5.4-mini` (OpenAI)
 - 🖥️ **Single-process backend**: FastAPI + `BackgroundTasks`. No Redis, no Docker, no separate worker
 - 🧩 **Multi-PDF queue**: drag-and-drop several PDFs → fully serial, auto-continuous processing
 - ✅ **100 tests** (`pytest`), 100% classification accuracy verified on a 28-page golden PDF
@@ -115,6 +115,7 @@ A single `LLMProvider` Protocol papers over the differences between the SDKs.
 | Claude Haiku 4.5 | `anthropic` | **Tool Use** (`tools=[{input_schema:...}]`) | Balanced Korean / stability |
 | Gemini 2.5 Flash | `google-genai` | **`response_schema`** (OpenAPI subset) | Cheapest |
 | Gemini 3 Flash | `google-genai` | **`response_schema`** | ~2× faster |
+| GPT-5.4 mini | `openai` | **Strict JSON Schema** (`response_format`) | Strong vision + reasoning; great with diagrams |
 
 A Pydantic-JSON-Schema → Gemini-OpenAPI-Schema converter (`providers/schemas.py`) inlines `$ref`, turns `Optional[X]` into `nullable: true`, uppercases types, and strips unsupported keys.
 
@@ -211,7 +212,7 @@ pdftomd/
 | Python | **3.11+** |
 | Node.js | **20+** (npm 10+) |
 | OS | Windows 10/11, macOS, Linux all work the same |
-| LLM API key | **`ANTHROPIC_API_KEY` or `GEMINI_API_KEY` — at least one** |
+| LLM API key | **`ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` — at least one** |
 
 > Docker and Redis are not required. PDF rasterization goes through **PyMuPDF**, so there is no poppler / pdftoppm system dependency either.
 
@@ -228,7 +229,7 @@ cd pdftomd
 
 ```bash
 cp .env.example .env
-# Open .env and fill in ANTHROPIC_API_KEY and/or GEMINI_API_KEY
+# Open .env and fill in at least one of ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY
 ```
 
 See [§6 Environment variables](#6-environment-variables) for every option.
@@ -302,6 +303,7 @@ Place `.env` at the project root (`pdftomd/`). The backend will find it automati
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | ◐ | — | If empty, `claude-haiku-4-5` is disabled in the UI |
 | `GEMINI_API_KEY` | ◐ | — | If empty, `gemini-2-5-flash` / `gemini-3-flash` are disabled |
+| `OPENAI_API_KEY` | ◐ | — | If empty, `gpt-5.4-mini` is disabled |
 | `MAX_PDF_SIZE_MB` | × | `100` | Upload size limit (MB) |
 | `MAX_PDF_PAGES` | × | `100` | Page count limit |
 | `RESULT_TTL_SECONDS` | × | `3600` | Result retention seconds — currently informational; auto-cleanup is unimplemented |
@@ -311,10 +313,10 @@ Place `.env` at the project root (`pdftomd/`). The backend will find it automati
 | `FRONTEND_PORT` | × | `9017` | Informational (hard-coded in `package.json` scripts) |
 | `CORS_ORIGINS` | × | `http://localhost:9017` | Comma-separated allowed origins |
 
-**◐ = at least one of these is required**. With both empty the backend refuses to start with:
+**◐ = at least one of these is required**. With all empty the backend refuses to start with:
 
 ```
-RuntimeError: No LLM API key configured. Set ANTHROPIC_API_KEY or GEMINI_API_KEY in environment / .env.
+RuntimeError: No LLM API key configured. Set ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY in environment / .env.
 ```
 
 ### Frontend
@@ -343,7 +345,7 @@ python -m app.cli path/to/input.pdf -o ./out --model claude-haiku-4-5
 | Flag | Description |
 |---|---|
 | `-o`, `--output-dir DIR` | Output folder (default `./out`) |
-| `--model {claude-haiku-4-5,gemini-2-5-flash,gemini-3-flash}` | Model id (defaults to the first enabled one) |
+| `--model {claude-haiku-4-5,gemini-2-5-flash,gemini-3-flash,gpt-5-mini,gpt-5.4-mini}` | Model id (defaults to the first enabled one) |
 | `--dpi N` | Pass 2 rasterization DPI (default: `RENDER_DPI`) |
 | `--keep-pages` | Keep the temporary `pages/` directory (debugging) |
 | `--list-models` | Print enabled / preview / cost table and exit |
@@ -359,6 +361,8 @@ python -m app.cli --list-models
 # claude-haiku-4-5    yes      no       $0.20      Claude Haiku 4.5
 # gemini-2-5-flash    yes      no       $0.10      Gemini 2.5 Flash
 # gemini-3-flash      yes      no       $0.20      Gemini 3 Flash
+# gpt-5-mini          yes      no       $0.30      GPT-5 mini
+# gpt-5.4-mini        yes      no       $0.45      GPT-5.4 mini
 
 python -m app.cli ./test.pdf -o ./out --model gemini-3-flash -v
 # input:    test.pdf
@@ -418,7 +422,10 @@ Only models with a configured key have `enabled: true`.
     "notes": "Cheapest. Good Korean support." },
   { "id": "gemini-3-flash", "display_name": "Gemini 3 Flash", "provider": "google",
     "is_preview": false, "enabled": true, "estimated_cost_per_pdf_usd": 0.20,
-    "notes": "~2× faster. Strong on multimodal — block code / complex diagrams." }
+    "notes": "~2× faster. Strong on multimodal — block code / complex diagrams." },
+  { "id": "gpt-5.4-mini", "display_name": "GPT-5.4 mini", "provider": "openai",
+    "is_preview": false, "enabled": true, "estimated_cost_per_pdf_usd": 0.45,
+    "notes": "Strong vision + reasoning; ~2× faster than GPT-5 mini." }
 ]}
 ```
 
@@ -440,7 +447,7 @@ Response `201`:
   "job_id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "queued",
   "total_pages": 28,
-  "model": "gemini-2-5-flash",
+  "model": "gpt-5.4-mini",
   "created_at": "2026-04-29T05:30:00+00:00"
 }
 ```
@@ -448,7 +455,7 @@ Response `201`:
 ```bash
 curl -X POST http://localhost:9007/jobs \
   -F "file=@lecture.pdf" \
-  -F "model=gemini-2-5-flash"
+  -F "model=gpt-5.4-mini"
 ```
 
 #### `GET /jobs/{job_id}` — poll status
@@ -489,8 +496,10 @@ Measured against `backend/tests/golden/deepco_kdc_18/input.pdf` (28-page Korean 
 | Claude Haiku 4.5 | ~3 min | 100% (28/28) | $0.20 | Balanced Korean / stability |
 | Gemini 2.5 Flash | ~2 min | 100% (28/28) | $0.10 | Lowest cost |
 | Gemini 3 Flash | ~1.5 min | 100% (28/28) | $0.20 | ~2× faster, strong on complex diagrams |
+| GPT-5 mini | TBD | TBD | $0.30 | Proven GPT-5 vision + reasoning |
+| GPT-5.4 mini | TBD | TBD | $0.45 | Strong vision + reasoning, great with diagrams |
 
-> Costs are estimates; actual spend depends on page count, text length, and image resolution. The current default in the UI is **Gemini 2.5 Flash**.
+> Costs are estimates; actual spend depends on page count, text length, and image resolution. The current default in the UI is **GPT-5.4 mini**.
 
 ## 10. Development
 
@@ -538,18 +547,32 @@ python tests/eval_classification.py path/to/output_dir
 
 Compares the classifications in your run against `tests/golden/deepco_kdc_18/expected.json`.
 
+### 10.4 Token usage log
+
+Every completed PDF run appends one JSONL record to `<DATA_DIR>/logs/usage.log`. Use it for cost tracking and average-tokens-per-page analysis.
+
+```jsonl
+{"ts":"2026-04-29T15:21:30+00:00","pdf":"lecture.pdf","model":"gpt-5.4-mini","input_tokens":12345,"output_tokens":6789,"total_tokens":19134,"pages":28,"ok":true}
+{"ts":"2026-04-29T15:30:11+00:00","pdf":"broken.pdf","model":"gemini-3-flash","input_tokens":2400,"output_tokens":0,"total_tokens":2400,"pages":0,"ok":false,"error":"LLMSchemaValidationError: ..."}
+```
+
+- Records both successes and failures (`ok: false` plus an `error` field on failure).
+- Each adapter accumulates the SDK-reported usage: Anthropic `usage.input_tokens` / `usage.output_tokens`, Google `usage_metadata.{prompt,candidates}_token_count`, OpenAI `usage.{prompt,completion}_tokens`.
+- Aggregate quickly with e.g. `jq -s 'group_by(.model) | map({model:.[0].model, total:map(.total_tokens) | add})' usage.log`.
+- The CLI also prints `tokens: input=... output=... total=...` to stderr at the end of a run.
+
 ## 11. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
-| Backend dies with `RuntimeError: No LLM API key configured` | At least one of `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` must be set in `.env`. The `.env` file goes at the project root (the parent of `backend/`) |
+| Backend dies with `RuntimeError: No LLM API key configured` | At least one of `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` must be set in `.env`. The `.env` file goes at the project root (the parent of `backend/`) |
 | `ModuleNotFoundError: No module named 'google.api_core'` (or any other missing module) | Dependencies are out of sync. Re-run `start_server.bat` — it runs `pip install -e .` every time, so missing packages get installed automatically. Manual: `cd backend && python -m pip install -e .` |
 | Missing dependency error after `git pull` | Someone bumped `pyproject.toml` or `package.json`. `start_server.bat` re-runs `pip install -e .` + `npm install` on every launch, so just run it again to sync |
 | `/health` reports `data_dir` as `\data` or `D:\data` | Your `.env` has something like `DATA_DIR=/data`, which resolves to the drive root. Use `DATA_DIR=./data` instead — relative paths resolve against the project root |
 | Ports 9007 / 9017 already in use | (Win) `Get-NetTCPConnection -LocalPort 9007 -State Listen`, then `Stop-Process -Id <PID>`. (\*nix) `lsof -i :9007`, then `kill <PID>` |
 | `MODEL_NOT_AVAILABLE` response | The relevant key is missing from `.env`. Hit `/models` to see which are enabled |
 | Job flips to `failed` immediately after upload | Read the backend log. Common: `LLM_API_ERROR` (network / quota), `CONTEXT_EXTRACTION_FAILED` (Pass 1 validation failed 3×) |
-| Gemini truncates with `MAX_TOKENS` | Happens occasionally on dense pages. Bump `_MAX_OUTPUT_TOKENS` in `providers/gemini.py` (currently 8192) |
+| Gemini truncates with `MAX_TOKENS` | Happens occasionally on dense pages. Bump `_MAX_OUTPUT_TOKENS_BY_VARIANT` in `providers/gemini.py` (currently 65,536) |
 | Korean / spaces in filename mangled on download | Starlette's `FileResponse` automatically appends RFC 5987 encoding. If something still mangles it, the issue is usually in the downloader (e.g. an old curl) |
 | Closed the page mid-run → job appears lost | `BackgroundTasks` keeps running while the server is up. But the queue is **in-memory** — restarting the backend wipes job metadata (the result ZIP on disk survives) |
 | Korean console output is mojibake on Windows | Switch to UTF-8: `chcp 65001`, or in PowerShell `[Console]::OutputEncoding = [Text.UTF8Encoding]::new()` |

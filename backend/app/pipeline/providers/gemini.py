@@ -83,6 +83,8 @@ class GeminiProvider:
             self.thinking_level = "minimal"
 
         self.model_id = VENDOR_MODEL_IDS[self.name]
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
 
     # --- pass 1 -----------------------------------------------------------
 
@@ -200,6 +202,11 @@ class GeminiProvider:
             raise LLMError(str(e)) from e
         except Exception as e:  # last-resort: wrap so the runner can decide
             raise LLMError(f"Gemini call failed: {e}") from e
+
+        usage = getattr(response, "usage_metadata", None)
+        if usage is not None:
+            self.total_input_tokens += getattr(usage, "prompt_token_count", 0) or 0
+            self.total_output_tokens += getattr(usage, "candidates_token_count", 0) or 0
 
         text = _extract_text(response)
         finish = _finish_reason(response)

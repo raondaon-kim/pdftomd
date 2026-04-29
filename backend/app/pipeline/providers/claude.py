@@ -104,6 +104,8 @@ class ClaudeHaikuProvider:
             raise ValueError("ANTHROPIC_API_KEY is required for ClaudeHaikuProvider")
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model_id = VENDOR_MODEL_IDS[CLAUDE_HAIKU_4_5]
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
 
     # --- pass 1 -----------------------------------------------------------
 
@@ -212,6 +214,11 @@ class ClaudeHaikuProvider:
             raise LLMError(f"Anthropic API error {e.status_code}: {e}") from e
         except anthropic.AnthropicError as e:
             raise LLMError(str(e)) from e
+
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self.total_input_tokens += getattr(usage, "input_tokens", 0) or 0
+            self.total_output_tokens += getattr(usage, "output_tokens", 0) or 0
 
         for block in response.content:
             if getattr(block, "type", None) == "tool_use" and block.name == tool["name"]:

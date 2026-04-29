@@ -21,8 +21,12 @@ from app.pipeline.providers.registry import (
     CLAUDE_HAIKU_4_5,
     GEMINI_2_5_FLASH,
     GEMINI_3_FLASH,
+    GPT_5_4_MINI,
+    GPT_5_MINI,
     get_metadata,
 )
+
+_OPENAI_MODEL_IDS = {GPT_5_MINI, GPT_5_4_MINI}
 
 
 def _has_api_key(model_id: str, settings: Settings) -> bool:
@@ -30,6 +34,8 @@ def _has_api_key(model_id: str, settings: Settings) -> bool:
         return bool(settings.anthropic_api_key)
     if model_id in (GEMINI_2_5_FLASH, GEMINI_3_FLASH):
         return bool(settings.gemini_api_key)
+    if model_id in _OPENAI_MODEL_IDS:
+        return bool(settings.openai_api_key)
     return False
 
 
@@ -50,6 +56,11 @@ def make_provider(model_id: str, settings: Settings) -> LLMProvider:
         from app.pipeline.providers.gemini import GeminiProvider
         variant = "2-5" if model_id == GEMINI_2_5_FLASH else "3"
         return GeminiProvider(settings.gemini_api_key, variant=variant)
+    if model_id in _OPENAI_MODEL_IDS:
+        if not settings.openai_api_key:
+            raise ValueError("OPENAI_API_KEY is not set")
+        from app.pipeline.providers.openai import OpenAIProvider
+        return OpenAIProvider(settings.openai_api_key, model_id=model_id)
     raise ValueError(f"Unknown model id: {model_id!r}")
 
 
@@ -66,6 +77,8 @@ __all__ = [
     "CLAUDE_HAIKU_4_5",
     "GEMINI_2_5_FLASH",
     "GEMINI_3_FLASH",
+    "GPT_5_4_MINI",
+    "GPT_5_MINI",
     "LLMAuthError",
     "LLMError",
     "LLMProvider",

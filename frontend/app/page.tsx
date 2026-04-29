@@ -41,10 +41,10 @@ export default function UploadPage() {
       .then((data) => {
         if (cancelled) return;
         setModels(data);
-        // Prefer Gemini 2.5 Flash as the default. Fall back to the first
-        // enabled model if 2.5 isn't available (key missing).
+        // Prefer GPT-5.4 mini as the default. Fall back to the first
+        // enabled model if it isn't available (key missing).
         const preferred = data.find(
-          (m) => m.id === "gemini-2-5-flash" && m.enabled,
+          (m) => m.id === "gpt-5.4-mini" && m.enabled,
         );
         const firstEnabled = preferred ?? data.find((m) => m.enabled);
         if (firstEnabled) setSelectedModel(firstEnabled.id);

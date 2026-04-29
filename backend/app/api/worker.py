@@ -67,6 +67,7 @@ def run_pipeline_job(
             max_pages=settings.max_pdf_pages,
             max_size_mb=settings.max_pdf_size_mb,
             on_progress=_make_progress_reporter(store, job_id),
+            usage_log_dir=settings.data_dir / "logs",
         )
     except PDFValidationError as e:
         log.warning("PDF validation failed for job %s: %s", job_id, e)

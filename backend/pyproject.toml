@@ -26,6 +26,7 @@ dependencies = [
     # branching in providers/gemini.py). Not always pulled in transitively on a
     # clean install, so we declare it explicitly.
     "google-api-core>=2.15",
+    "openai>=1.50",
     # google-genai uses google.api_core for typed exceptions (auth/quota/timeout
     # branching in providers/gemini.py). It is not always pulled in transitively
     # on a clean install, so we declare it explicitly.

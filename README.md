@@ -5,7 +5,7 @@
 LLM Vision으로 PDF(주로 강의 슬라이드)를 **자급자족 마크다운 + 잘라낸 이미지**로 변환하는 로컬 단일 사용자용 웹 도구입니다. 텍스트만 읽어도 학습 내용이 완결되도록 다이어그램·표·박스·화살표의 의미를 함께 풀어 씁니다.
 
 - 🧠 **2-pass 파이프라인**: ① 강의 전체 맥락(주제/용어/슬라이드 개요) 추출 → ② 페이지별 마크다운 + 이미지 영역 결정
-- 🔌 **모델 3종**: `claude-haiku-4-5` (Anthropic), `gemini-2-5-flash`, `gemini-3-flash` (Google)
+- 🔌 **모델 5종**: `claude-haiku-4-5` (Anthropic), `gemini-2-5-flash`, `gemini-3-flash` (Google), `gpt-5-mini`, `gpt-5.4-mini` (OpenAI)
 - 🖥️ **단일 프로세스 백엔드**: FastAPI + `BackgroundTasks`. Redis/Docker/별도 워커 없음
 - 🧩 **다중 PDF 큐**: 여러 PDF를 드래그앤드롭 → 완전 직렬 자동 연속 처리
 - ✅ **테스트 100개** (`pytest`), 28페이지 골든 PDF로 분류 100% 검증
@@ -113,6 +113,7 @@ result.zip
 | Claude Haiku 4.5 | `anthropic` | **Tool Use** (`tools=[{input_schema:...}]`) | 한국어 / 안정성 균형 |
 | Gemini 2.5 Flash | `google-genai` | **`response_schema`** (OpenAPI subset) | 가장 저렴 |
 | Gemini 3 Flash | `google-genai` | **`response_schema`** | 속도 약 2배 |
+| GPT-5.4 mini | `openai` | **Strict JSON Schema** (`response_format`) | 비전·추론 강세, 다이어그램에 유리 |
 
 Pydantic JSON Schema → Gemini OpenAPI Schema 변환기(`providers/schemas.py`)가 `$ref` 인라인화, `Optional[X]` → `nullable: true`, 타입 대문자화, 미지원 키 제거를 해줍니다.
 
@@ -208,7 +209,7 @@ pdftomd/
 | Python | **3.11+** |
 | Node.js | **20+** (npm 10+) |
 | OS | Windows 10/11, macOS, Linux 동일하게 동작 |
-| LLM API 키 | **`ANTHROPIC_API_KEY` 또는 `GEMINI_API_KEY` 중 최소 1개** |
+| LLM API 키 | **`ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` 중 최소 1개** |
 
 > Docker나 Redis는 필요 없습니다. PDF 래스터화는 **PyMuPDF**가 처리하므로 poppler/pdftoppm 시스템 의존성도 없습니다.
 
@@ -225,7 +226,7 @@ cd pdftomd
 
 ```bash
 cp .env.example .env
-# 편집기로 .env 열어서 ANTHROPIC_API_KEY 또는 GEMINI_API_KEY 채우기
+# 편집기로 .env 열어서 ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY 중 하나 채우기
 ```
 
 자세한 항목은 [§6 환경 변수](#6-환경-변수) 참고.
@@ -301,6 +302,7 @@ npm run dev
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | ◐ | — | 비어 있으면 `claude-haiku-4-5`가 UI에서 비활성화 |
 | `GEMINI_API_KEY` | ◐ | — | 비어 있으면 `gemini-2-5-flash` / `gemini-3-flash`가 비활성화 |
+| `OPENAI_API_KEY` | ◐ | — | 비어 있으면 `gpt-5.4-mini`가 UI에서 비활성화 |
 | `MAX_PDF_SIZE_MB` | × | `100` | 업로드 크기 제한 (MB) |
 | `MAX_PDF_PAGES` | × | `100` | 페이지 수 제한 |
 | `RESULT_TTL_SECONDS` | × | `3600` | 결과 보존 시간 (초) — 현재 자동 삭제는 미구현, 메타값만 |
@@ -310,10 +312,10 @@ npm run dev
 | `FRONTEND_PORT` | × | `9017` | 정보용 (`package.json` 스크립트에 하드코딩됨) |
 | `CORS_ORIGINS` | × | `http://localhost:9017` | 콤마 구분 허용 origin |
 
-**◐ = 둘 중 적어도 하나 필수**. 둘 다 비어 있으면 백엔드가 시작 시 다음 에러로 거부합니다:
+**◐ = 셋 중 적어도 하나 필수**. 모두 비어 있으면 백엔드가 시작 시 다음 에러로 거부합니다:
 
 ```
-RuntimeError: No LLM API key configured. Set ANTHROPIC_API_KEY or GEMINI_API_KEY in environment / .env.
+RuntimeError: No LLM API key configured. Set ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY in environment / .env.
 ```
 
 ### 프론트엔드용
@@ -342,7 +344,7 @@ python -m app.cli path/to/input.pdf -o ./out --model claude-haiku-4-5
 | 플래그 | 설명 |
 |---|---|
 | `-o`, `--output-dir DIR` | 결과 폴더 (기본 `./out`) |
-| `--model {claude-haiku-4-5,gemini-2-5-flash,gemini-3-flash}` | 모델 ID (생략 시 첫 번째 enabled 모델) |
+| `--model {claude-haiku-4-5,gemini-2-5-flash,gemini-3-flash,gpt-5-mini,gpt-5.4-mini}` | 모델 ID (생략 시 첫 번째 enabled 모델) |
 | `--dpi N` | Pass 2 래스터 DPI (기본 `RENDER_DPI`) |
 | `--keep-pages` | 임시 `pages/` 디렉토리를 남김 (디버깅용) |
 | `--list-models` | 모델별 enabled / preview / 비용 표 출력 후 종료 |
@@ -358,6 +360,8 @@ python -m app.cli --list-models
 # claude-haiku-4-5    yes      no       $0.20      Claude Haiku 4.5
 # gemini-2-5-flash    yes      no       $0.10      Gemini 2.5 Flash
 # gemini-3-flash      yes      no       $0.20      Gemini 3 Flash
+# gpt-5-mini          yes      no       $0.30      GPT-5 mini
+# gpt-5.4-mini        yes      no       $0.45      GPT-5.4 mini
 
 python -m app.cli ./test.pdf -o ./out --model gemini-3-flash -v
 # input:    test.pdf
@@ -417,7 +421,10 @@ python -m app.cli ./test.pdf -o ./out --model gemini-3-flash -v
     "notes": "가장 저렴. 한국어 양호." },
   { "id": "gemini-3-flash", "display_name": "Gemini 3 Flash", "provider": "google",
     "is_preview": false, "enabled": true, "estimated_cost_per_pdf_usd": 0.20,
-    "notes": "속도 약 2배. 멀티모달 이해 강세 — 블록 코드/복잡 다이어그램에 유리." }
+    "notes": "속도 약 2배. 멀티모달 이해 강세 — 블록 코드/복잡 다이어그램에 유리." },
+  { "id": "gpt-5.4-mini", "display_name": "GPT-5.4 mini", "provider": "openai",
+    "is_preview": false, "enabled": true, "estimated_cost_per_pdf_usd": 0.45,
+    "notes": "비전·추론 모두 강세. GPT-5 mini 대비 약 2배 빠르고 멀티모달 이해 향상." }
 ]}
 ```
 
@@ -437,7 +444,7 @@ python -m app.cli ./test.pdf -o ./out --model gemini-3-flash -v
   "job_id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "queued",
   "total_pages": 28,
-  "model": "gemini-2-5-flash",
+  "model": "gpt-5.4-mini",
   "created_at": "2026-04-29T05:30:00+00:00"
 }
 ```
@@ -445,7 +452,7 @@ python -m app.cli ./test.pdf -o ./out --model gemini-3-flash -v
 ```bash
 curl -X POST http://localhost:9007/jobs \
   -F "file=@강의자료.pdf" \
-  -F "model=gemini-2-5-flash"
+  -F "model=gpt-5.4-mini"
 ```
 
 #### `GET /jobs/{job_id}` — 상태 폴링
@@ -486,8 +493,10 @@ curl -X POST http://localhost:9007/jobs \
 | Claude Haiku 4.5 | ~3분 | 100% (28/28) | $0.20 | 한국어/안정성 균형 |
 | Gemini 2.5 Flash | ~2분 | 100% (28/28) | $0.10 | 최저 비용 |
 | Gemini 3 Flash | ~1.5분 | 100% (28/28) | $0.20 | 속도 약 2배 / 복잡 다이어그램 강세 |
+| GPT-5 mini | 측정 예정 | 측정 예정 | $0.30 | GPT-5 시리즈 검증된 비전 + 추론 |
+| GPT-5.4 mini | 측정 예정 | 측정 예정 | $0.45 | 비전·추론 강세, 다이어그램에 유리 |
 
-> 비용은 추정치이며, 페이지 수 / 텍스트 길이 / 이미지 해상도에 따라 변합니다. 현재 가장 자주 쓰는 기본값은 **Gemini 2.5 Flash** (frontend 초기 선택).
+> 비용은 추정치이며, 페이지 수 / 텍스트 길이 / 이미지 해상도에 따라 변합니다. 현재 frontend 초기 선택은 **GPT-5.4 mini**.
 
 ## 10. 개발
 
@@ -535,18 +544,32 @@ python tests/eval_classification.py path/to/output_dir
 
 `tests/golden/deepco_kdc_18/expected.json`과 분류 결과를 비교합니다.
 
+### 10.4 토큰 사용량 로그
+
+각 PDF 처리가 끝나면 `<DATA_DIR>/logs/usage.log`에 JSONL 한 줄이 추가됩니다. 모델별 비용 추적, 평균 토큰 사용량 분석에 활용하세요.
+
+```jsonl
+{"ts":"2026-04-29T15:21:30+00:00","pdf":"강의자료.pdf","model":"gpt-5.4-mini","input_tokens":12345,"output_tokens":6789,"total_tokens":19134,"pages":28,"ok":true}
+{"ts":"2026-04-29T15:30:11+00:00","pdf":"broken.pdf","model":"gemini-3-flash","input_tokens":2400,"output_tokens":0,"total_tokens":2400,"pages":0,"ok":false,"error":"LLMSchemaValidationError: ..."}
+```
+
+- 성공/실패 모두 기록됩니다 (실패 시 `ok: false`, `error` 필드 추가).
+- 어댑터는 SDK가 응답에 실어주는 사용량을 누적합니다 — Anthropic `usage.input_tokens` / `usage.output_tokens`, Google `usage_metadata.{prompt,candidates}_token_count`, OpenAI `usage.{prompt,completion}_tokens`.
+- 빠르게 합산하려면 `jq -s 'group_by(.model) | map({model:.[0].model, total:map(.total_tokens) | add})' usage.log` 같은 식으로 집계 가능.
+- CLI 사용 시 작업 종료 stderr에도 `tokens: input=... output=... total=...`가 한 줄 표시됩니다.
+
 ## 11. 트러블슈팅
 
 | 증상 | 원인 / 해결 |
 |---|---|
-| 백엔드가 `RuntimeError: No LLM API key configured`로 죽음 | `.env`에 `ANTHROPIC_API_KEY` 또는 `GEMINI_API_KEY` 중 하나는 채워야 합니다. `.env`는 프로젝트 루트(=`backend/`의 부모)에 위치 |
+| 백엔드가 `RuntimeError: No LLM API key configured`로 죽음 | `.env`에 `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` 중 하나는 채워야 합니다. `.env`는 프로젝트 루트(=`backend/`의 부모)에 위치 |
 | `ModuleNotFoundError: No module named 'google.api_core'` (또는 다른 빠진 모듈) | 의존성이 동기화되지 않았습니다. `start_server.bat`을 다시 실행하면 `pip install -e .`이 자동으로 빠진 패키지를 설치합니다. 수동으로 하려면 `cd backend && python -m pip install -e .` |
 | `git pull` 후 의존성 누락 에러 | 누군가 `pyproject.toml`이나 `package.json`을 갱신했을 때 발생. `start_server.bat`이 매 실행마다 `pip install -e .` + `npm install`을 돌려 자동 동기화하므로 그냥 다시 실행하면 됩니다 |
 | `/health`의 `data_dir`이 `\data` 또는 `D:\data`처럼 이상함 | `.env`에 `DATA_DIR=/data`처럼 절대 루트가 들어간 경우. `DATA_DIR=./data`로 바꾸세요 (상대 경로는 프로젝트 루트 기준으로 자동 해석됨) |
 | 포트 9007/9017이 이미 사용 중 | (Win) `Get-NetTCPConnection -LocalPort 9007 -State Listen` 후 `Stop-Process -Id <PID>`. (\*nix) `lsof -i :9007` 후 `kill <PID>` |
 | `MODEL_NOT_AVAILABLE` 응답 | 해당 모델 키가 `.env`에 없음. `/models`로 enabled 모델 확인 |
 | 업로드 성공 후 `failed` 즉시 발생 | 백엔드 로그를 보세요. 자주: `LLM_API_ERROR` (네트워크/쿼터), `CONTEXT_EXTRACTION_FAILED` (Pass 1 검증 3회 실패) |
-| Gemini가 `MAX_TOKENS`로 응답 절단 | 큰 페이지에서 가끔 발생. `providers/gemini.py`의 `_MAX_OUTPUT_TOKENS`(현재 8192) 상향 |
+| Gemini가 `MAX_TOKENS`로 응답 절단 | 큰 페이지에서 가끔 발생. `providers/gemini.py`의 `_MAX_OUTPUT_TOKENS_BY_VARIANT`(현재 65,536) 상향 |
 | 한글/공백 파일명이 다운로드 시 깨짐 | Starlette `FileResponse`가 자동으로 RFC 5987 인코딩을 추가합니다. 깨진다면 사용 중인 다운로드 도우미(curl 등)의 문제일 수 있음 |
 | 처리 중 페이지 닫음 → 작업 사라짐 | `BackgroundTasks`라 서버가 안 죽으면 작업은 계속 진행됩니다. 다만 **인메모리** 큐라 서버를 재시작하면 메타가 사라집니다 (디스크 ZIP은 남음) |
 | Windows에서 한글 콘솔 깨짐 | UTF-8 코드페이지: `chcp 65001` 또는 PowerShell에서 `[Console]::OutputEncoding = [Text.UTF8Encoding]::new()` |

@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     # LLM API keys — at least one must be set at startup
     anthropic_api_key: str | None = None
     gemini_api_key: str | None = None
+    openai_api_key: str | None = None
 
     # Storage / runtime — accepts absolute or relative paths. Relative paths
     # (e.g. ``./data`` in .env) are resolved against the project root, not the
@@ -86,10 +87,10 @@ class Settings(BaseSettings):
 
     def validate_at_startup(self) -> None:
         """Raise if no LLM API key is configured (server cannot do useful work)."""
-        if not (self.anthropic_api_key or self.gemini_api_key):
+        if not (self.anthropic_api_key or self.gemini_api_key or self.openai_api_key):
             raise RuntimeError(
                 "No LLM API key configured. "
-                "Set ANTHROPIC_API_KEY or GEMINI_API_KEY in environment / .env."
+                "Set ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY in environment / .env."
             )
 
 

@@ -10,6 +10,7 @@ from app.pipeline.providers import (
 )
 from app.pipeline.providers.claude import ClaudeHaikuProvider
 from app.pipeline.providers.gemini import GeminiProvider
+from app.pipeline.providers.openai import OpenAIProvider
 
 
 def _settings(**overrides) -> Settings:
@@ -40,6 +41,22 @@ def test_make_gemini_3_with_key():
     assert p.is_preview is True
 
 
+def test_make_gpt_5_4_mini_with_key():
+    s = _settings(anthropic_api_key=None, gemini_api_key=None, openai_api_key="sk-test")
+    p = make_provider("gpt-5.4-mini", s)
+    assert isinstance(p, OpenAIProvider)
+    assert p.name == "gpt-5.4-mini"
+    assert p.is_preview is False
+
+
+def test_make_gpt_5_mini_with_key():
+    s = _settings(anthropic_api_key=None, gemini_api_key=None, openai_api_key="sk-test")
+    p = make_provider("gpt-5-mini", s)
+    assert isinstance(p, OpenAIProvider)
+    assert p.name == "gpt-5-mini"
+    assert p.is_preview is False
+
+
 def test_make_provider_rejects_missing_anthropic_key():
     s = _settings(anthropic_api_key=None, gemini_api_key="x")
     with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
@@ -52,22 +69,30 @@ def test_make_provider_rejects_missing_gemini_key():
         make_provider("gemini-3-flash", s)
 
 
+def test_make_provider_rejects_missing_openai_key():
+    s = _settings(anthropic_api_key="x", gemini_api_key="y", openai_api_key=None)
+    with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+        make_provider("gpt-5.4-mini", s)
+
+
 def test_make_provider_rejects_unknown_id():
-    s = _settings(anthropic_api_key="x", gemini_api_key="y")
+    s = _settings(anthropic_api_key="x", gemini_api_key="y", openai_api_key="z")
     with pytest.raises(ValueError, match="Unknown model"):
         make_provider("gpt-4o", s)
 
 
 def test_list_available_providers_marks_disabled():
-    s = _settings(anthropic_api_key="x", gemini_api_key=None)
+    s = _settings(anthropic_api_key="x", gemini_api_key=None, openai_api_key=None)
     infos = {info.id: info for info in list_available_providers(s)}
     assert infos["claude-haiku-4-5"].enabled is True
     assert infos["gemini-2-5-flash"].enabled is False
     assert infos["gemini-3-flash"].enabled is False
     assert infos["gemini-3-flash"].is_preview is False
+    assert infos["gpt-5.4-mini"].enabled is False
+    assert infos["gpt-5-mini"].enabled is False
 
 
 def test_list_available_providers_all_disabled_when_no_keys():
-    s = _settings(anthropic_api_key=None, gemini_api_key=None)
+    s = _settings(anthropic_api_key=None, gemini_api_key=None, openai_api_key=None)
     for info in list_available_providers(s):
         assert info.enabled is False

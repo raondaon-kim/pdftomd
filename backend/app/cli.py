@@ -157,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
             max_size_mb=settings.max_pdf_size_mb,
             keep_pages_dir=args.keep_pages,
             on_progress=_stderr_progress,
+            usage_log_dir=settings.data_dir / "logs",
         )
     except PDFValidationError as e:
         sys.stderr.write("\n")
@@ -172,11 +173,14 @@ def main(argv: list[str] | None = None) -> int:
 
     elapsed = time.monotonic() - started
     sys.stderr.write("\n")
+    in_tok = getattr(provider, "total_input_tokens", 0)
+    out_tok = getattr(provider, "total_output_tokens", 0)
     print(
         f"\nDone in {elapsed:.1f}s\n"
         f"  pages:    {len(result.pages)}\n"
         f"  content:  {result.content_md}\n"
-        f"  zip:      {result.zip_path}",
+        f"  zip:      {result.zip_path}\n"
+        f"  tokens:   input={in_tok:,}  output={out_tok:,}  total={in_tok + out_tok:,}",
         file=sys.stderr,
     )
     return 0

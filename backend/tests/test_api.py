@@ -25,6 +25,7 @@ def _build_app(
     *,
     anthropic_key: str | None = "sk-ant-test",
     gemini_key: str | None = "gemini-test",
+    openai_key: str | None = "sk-openai-test",
 ):
     """Build a fresh FastAPI app with hand-injected Settings.
 
@@ -36,6 +37,7 @@ def _build_app(
         _env_file=None,
         anthropic_api_key=anthropic_key,
         gemini_api_key=gemini_key,
+        openai_api_key=openai_key,
         data_dir=tmp_path,
     )
     config.set_settings_for_tests(settings)
@@ -98,13 +100,19 @@ def test_health_ok(client: TestClient):
     assert "data_dir" in body
 
 
-def test_models_lists_three_with_enabled_flags(client: TestClient):
+def test_models_lists_all_with_enabled_flags(client: TestClient):
     r = client.get("/models")
     assert r.status_code == 200
     ids = [m["id"] for m in r.json()["models"]]
-    assert ids == ["claude-haiku-4-5", "gemini-2-5-flash", "gemini-3-flash"]
+    assert ids == [
+        "claude-haiku-4-5",
+        "gemini-2-5-flash",
+        "gemini-3-flash",
+        "gpt-5-mini",
+        "gpt-5.4-mini",
+    ]
     for m in r.json()["models"]:
-        assert m["enabled"] is True  # both keys set in fixture
+        assert m["enabled"] is True  # all keys set in fixture
 
 
 # ---------------------------------------------------------------------------
