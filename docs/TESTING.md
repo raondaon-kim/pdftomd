@@ -173,7 +173,7 @@ def test_build_system_prompt_injects_context():
     assert "p.1 표지" in prompt
 ```
 
-### 3.5 `tests/test_providers.py`
+### 3.5 `tests/test_provider_factory.py`
 
 ```python
 def test_claude_provider_requires_key():
@@ -183,37 +183,57 @@ def test_claude_provider_requires_key():
 def test_gemini_provider_variants():
     p25 = GeminiProvider(api_key="x", variant="2-5")
     p3 = GeminiProvider(api_key="x", variant="3")
-    assert p25.is_preview is False
-    assert p3.is_preview is True
+    assert p25.temperature == 0.0
     assert p3.temperature == 1.0
     assert p3.thinking_level == "minimal"
 
 def test_make_provider_dispatches_correctly():
-    s = Settings(anthropic_api_key="x", gemini_api_key="y")
+    s = Settings(anthropic_api_key="x", gemini_api_key="y", openai_api_key="z")
     assert isinstance(make_provider("claude-haiku-4-5", s), ClaudeHaikuProvider)
     assert isinstance(make_provider("gemini-3-flash", s), GeminiProvider)
+    assert isinstance(make_provider("gpt-5-mini", s), OpenAIProvider)
+    assert isinstance(make_provider("gpt-5.4-mini", s), OpenAIProvider)
 
 def test_make_provider_raises_for_missing_key():
-    s = Settings(anthropic_api_key=None, gemini_api_key="y")
+    s = Settings(anthropic_api_key=None, gemini_api_key="y", openai_api_key=None)
     with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
         make_provider("claude-haiku-4-5", s)
+    with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+        make_provider("gpt-5-mini", s)
 
 def test_list_available_providers_marks_disabled():
-    s = Settings(anthropic_api_key="x", gemini_api_key=None)
+    s = Settings(anthropic_api_key="x", gemini_api_key=None, openai_api_key=None)
     infos = list_available_providers(s)
     by_id = {info.id: info for info in infos}
     assert by_id["claude-haiku-4-5"].enabled is True
     assert by_id["gemini-2-5-flash"].enabled is False
     assert by_id["gemini-3-flash"].enabled is False
-
-def test_pydantic_to_gemini_schema_handles_optional():
-    """Optional[BBox] → nullable: true"""
-    schema = pydantic_to_gemini_schema(PageAnalysis)
-    assert schema["properties"]["image_region"].get("nullable") is True
-    # anyOf 같은 비호환 필드가 없어야 함
-    import json
-    assert "anyOf" not in json.dumps(schema)
+    assert by_id["gpt-5-mini"].enabled is False
+    assert by_id["gpt-5.4-mini"].enabled is False
 ```
+
+### 3.6 `tests/test_openai_schema.py`
+
+OpenAI Strict JSON Schema 변환의 단위 테스트. `_prepare_strict_schema`가
+다음을 보장하는지 검증:
+
+- `$ref`가 인라인됨 (참조 해소)
+- 모든 object에 `additionalProperties: false`
+- 모든 필드가 `required`에 포함됨 (Optional 포함)
+- `Optional[X]` → `type: [X, "null"]` (anyOf 평탄화)
+- `default`, `format` 등 미지원 키워드 제거
+- classification enum이 보존됨
+
+### 3.7 `tests/test_usage_log.py`
+
+`usage_log.py`의 행동을 고정하는 테스트:
+
+- `append_usage_record`가 디렉토리를 만들고 JSONL을 추가함
+- 같은 파일에 여러 줄이 정상 누적됨
+- 실패한 작업도 `ok: false`와 `error`로 기록됨
+- 한글 PDF 파일명이 라운드트립 보존됨
+- 알려진 모델은 `input_cost_usd`/`output_cost_usd`/`total_cost_usd`가 채워짐
+- 알려지지 않은 모델은 비용 필드 자체가 생략됨
 
 ## 4. 통합 테스트 (LLM 모킹)
 
@@ -276,6 +296,8 @@ CI에서는 안 돌리고 **수동/주기적**으로 실행. `pytest -m llm_eval
     "claude-haiku-4-5",
     "gemini-2-5-flash",
     "gemini-3-flash",
+    "gpt-5-mini",
+    "gpt-5.4-mini",
 ])
 def test_classification_accuracy_per_model(model_id):
     """각 모델로 골든 PDF를 처리해 정답과 비교."""
@@ -295,7 +317,7 @@ def test_classification_accuracy_per_model(model_id):
 
 ### 5.2 모델 간 비교 (벤치마크 모드)
 
-같은 PDF·같은 정답으로 3개 모델을 비교 → README나 UI에 공개할 표 생성:
+같은 PDF·같은 정답으로 5개 모델을 비교 → README나 UI에 공개할 표 생성:
 
 ```python
 @pytest.mark.llm_eval
@@ -334,6 +356,8 @@ def test_compare_all_models_on_golden():
 | Claude Haiku 4.5  | 93%        | 92%         | 88%           | 3%     | 4.2s         | $0.19  |
 | Gemini 2.5 Flash  | 89%        | 90%         | 85%           | 5%     | 3.1s         | $0.09  |
 | Gemini 3 Flash    | 95%        | 94%         | 92%           | 2%     | 3.8s         | $0.21  |
+| GPT-5 mini        | 92%        | 91%         | 88%           | 3%     | 3.5s         | $0.30  |
+| GPT-5.4 mini      | 94%        | 93%         | 90%           | 2%     | 2.1s         | $0.45  |
 ```
 
 이 표는 **사용자가 모델을 고를 때 참고용**으로 README나 UI에 공개. v1 출시 시 1회 측정, 모델 업데이트 때마다 재측정.
@@ -418,7 +442,13 @@ def test_get_models_returns_available(client: TestClient):
     assert res.status_code == 200
     models = res.json()["models"]
     ids = {m["id"] for m in models}
-    assert ids == {"claude-haiku-4-5", "gemini-2-5-flash", "gemini-3-flash"}
+    assert ids == {
+        "claude-haiku-4-5",
+        "gemini-2-5-flash",
+        "gemini-3-flash",
+        "gpt-5-mini",
+        "gpt-5.4-mini",
+    }
     # 키 있는 모델은 enabled
     for m in models:
         assert isinstance(m["enabled"], bool)
@@ -440,8 +470,8 @@ v1 범위에서는 최소화:
 
 ```
 [ ] /에 접속 → 드롭존 + 모델 라디오 보임
-[ ] 모델 라디오에 3개 옵션 표시 (Claude Haiku, Gemini 2.5, Gemini 3)
-[ ] Gemini 3에 "베타" 라벨 표시
+[ ] 모델 라디오에 5개 옵션 표시 (Claude Haiku 4.5, Gemini 2.5 Flash, Gemini 3 Flash, GPT-5 mini, GPT-5.4 mini)
+[ ] 기본 선택이 GPT-5 mini (활성화돼 있을 때)
 [ ] 키 없는 모델은 회색 + 호버 안내
 [ ] 텍스트 파일 업로드 시도 → 거부 메시지
 [ ] PDF 파일 업로드 + 모델 선택 → /jobs/{id} 이동
@@ -453,6 +483,7 @@ v1 범위에서는 최소화:
 [ ] content.md 헤더에 강의 요약·핵심 용어·사용 모델 등장
 [ ] content.md에서 이미지 참조가 깨지지 않음
 [ ] 같은 PDF를 다른 모델로 다시 처리 → 결과가 달라짐 (모델 선택이 실제 동작)
+[ ] data/logs/usage.log에 1줄 추가됨 (job_id, pdf 원본명, 모델, 토큰, USD 비용 포함)
 ```
 
 ## 8. CI 구성 (선택)

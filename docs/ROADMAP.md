@@ -2,19 +2,23 @@
 
 총 5개 마일스톤. 각 마일스톤은 **그 자체로 끝까지 동작**하도록 구성 — 중간에 멈춰도 무언가는 사용 가능.
 
-## M0. 사전 준비 (반나절)
+> **현재 상태 (2026-04-29)**: M0~M4 완료, M5 폴리싱 진행 중. 출시 후 추가된 작업
+> (OpenAI 어댑터, USD 비용 로그, Windows 더블클릭 런처)은 §M5/포스트-출시에
+> 정리.
 
-- [ ] 저장소 초기화 (`pdf-slide-extractor/`)
-- [ ] `docs/` 폴더에 본 설계 문서 커밋
-- [ ] Anthropic API 키 발급 + `.env` 작성
-- [ ] 골든 데이터셋 정답(`expected.json`) 작성 — 딥코 KDC 18회차 28페이지
-- [ ] 로컬 개발 환경 점검 (Docker, Python 3.11, Node 20)
+## M0. 사전 준비 (반나절) — ✅ 완료
+
+- [x] 저장소 초기화 (`pdftomd/`)
+- [x] `docs/` 폴더에 본 설계 문서 커밋
+- [x] Anthropic / Gemini / OpenAI API 키 발급 + `.env` 작성
+- [x] 골든 데이터셋 정답(`expected.json`) 작성 — 딥코 KDC 18회차 28페이지
+- [x] 로컬 개발 환경 점검 (Python 3.11, Node 20)
 
 **산출물**: 빈 저장소 + 설계 문서 + API 키 준비
 
 ---
 
-## M1. 코어 파이프라인 (CLI로 동작)
+## M1. 코어 파이프라인 (CLI로 동작) — ✅ 완료
 
 웹 UI 없이 **명령줄로 PDF → ZIP 변환이 끝까지 되는 상태**. 다중 모델 지원 + 2-pass 구조라 작업이 많음 — M1을 세 단계로 나눔.
 
@@ -89,57 +93,58 @@ head -30 /tmp/out/content.md
 
 ---
 
-## M2. 백엔드 API (작업 큐 + 폴링)
+## M2. 백엔드 API — ✅ 완료 (BackgroundTasks로 단순화)
 
-CLI를 웹 API로 감싸기.
+CLI를 웹 API로 감싸기. 설계 단계의 Redis+RQ 대신 단일 사용자 시나리오에 맞게
+**FastAPI BackgroundTasks + InMemoryJobStore**로 구현 (ARCHITECTURE.md §6.2 참조).
 
 ### 작업
 
-- [ ] `app/main.py`: FastAPI 앱 + CORS
-- [ ] `core/queue.py`: Redis + RQ 큐
-- [ ] `api/jobs.py`: POST /jobs, GET /jobs/:id, GET /jobs/:id/download
-- [ ] `pipeline/runner.py`에 진행률 콜백 연결 (Redis hset)
-- [ ] `tools/cleaner.py`: TTL 기반 청소 스크립트
-- [ ] API 테스트 (TestClient)
-- [ ] backend Dockerfile + 부분적인 docker-compose (backend + redis + worker)
+- [x] `app/main.py`: FastAPI 앱 + CORS
+- [x] `core/job_store.py`: InMemoryJobStore (threading.Lock, Job dict)
+- [x] `api/jobs.py`: POST /jobs, GET /jobs/:id, GET /jobs/:id/download
+- [x] `api/worker.py`: BackgroundTasks 워커 함수 (`run_pipeline_job`)
+- [x] `pipeline/runner.py`에 진행률 콜백 연결 (`store.update_progress`)
+- [x] API 테스트 (TestClient, `tests/test_api.py`)
+- ~~backend Dockerfile~~: 도커 미사용. `start_server.bat`/`stop_server.bat`로 대체.
+- ~~tools/cleaner.py~~: 자동 정리 미구현 (수동, INFRA.md §7).
 
 ### 검증
 
 ```bash
-docker-compose up backend worker redis
+python -m app.main &  # uvicorn 9007
 
-curl -X POST http://localhost:8000/jobs -F "file=@tests/golden/deepco_kdc_18.pdf"
-# {"job_id": "...", "status": "queued", "total_pages": 28}
+curl -X POST http://localhost:9007/jobs -F "file=@tests/golden/deepco_kdc_18.pdf" -F "model=gpt-5-mini"
+# {"job_id": "...", "status": "queued", "total_pages": 28, "pdf_filename": "..."}
 
-watch -n 1 'curl -s http://localhost:8000/jobs/<id>'
+curl -s http://localhost:9007/jobs/<id>
 # 진행률이 0% → 100%로 변하는 게 보임
 
-curl http://localhost:8000/jobs/<id>/download -o result.zip
+curl http://localhost:9007/jobs/<id>/download -o result.zip
 unzip -l result.zip
 ```
 
 **완료 기준**:
 - API로 업로드 → 폴링 → 다운로드 끝까지 됨
-- 워커가 죽었다 살아나도 큐에서 작업 재개됨
-- 1시간 후 결과 자동 삭제 확인
+- 단일 프로세스 재시작 시 진행 중 작업이 휘발됨은 받아들임 (단일 사용자 가정)
+- 결과 자동 삭제는 수동 운영
 
-**예상 기간**: 2~3일
+**예상 기간**: 2~3일 (실제: 완료)
 
 ---
 
-## M3. 프론트엔드 (Next.js)
+## M3. 프론트엔드 (Next.js) — ✅ 완료
 
 사용자에게 보이는 부분.
 
 ### 작업
 
-- [ ] `frontend/` 골격 (Next.js 14 + Tailwind + TypeScript)
-- [ ] `app/page.tsx`: 업로드 화면
-- [ ] `app/jobs/[id]/page.tsx`: 진행 화면 + 폴링 훅
-- [ ] `app/jobs/[id]/done/page.tsx`: 완료 + 다운로드
-- [ ] 컴포넌트: FileDropzone, ProgressBar, ErrorBox, DownloadButton
-- [ ] `lib/api.ts`, `lib/usePolling.ts`
-- [ ] frontend Dockerfile
+- [x] `frontend/` 골격 (Next.js 14 + Tailwind + TypeScript)
+- [x] `app/page.tsx`: 업로드 + 진행 + 결과 (단일 페이지 흐름)
+- [x] `app/jobs/[id]/page.tsx`: 작업 URL 직접 진입 시
+- [x] 컴포넌트: FileDropzone, ProgressBar, ErrorBox, DownloadButton
+- [x] `lib/api.ts`, `lib/usePolling.ts`
+- ~~frontend Dockerfile~~: 도커 미사용. `next dev`로 직접 실행.
 
 ### 검증
 
@@ -154,51 +159,65 @@ unzip -l result.zip
 
 ---
 
-## M4. 통합 + 배포
+## M4. 통합 + 배포 — ✅ 완료 (Windows 더블클릭)
 
-전체를 docker-compose 한 방으로.
+도커 대신 Windows 더블클릭 워크플로로 단순화.
 
 ### 작업
 
-- [ ] 최종 `docker-compose.yml`
-- [ ] `.env.example` + README의 실행 가이드
-- [ ] 헬스체크 엔드포인트
-- [ ] 로그 포맷 통일
-- [ ] 비용 로그 (페이지당 LLM 비용)
-- [ ] README 작성 (설치/실행/문제 해결)
+- [x] `start_server.bat` / `stop_server.bat` (cmd 기반)
+  - 매 실행마다 `pip install -e backend`로 의존성 동기화
+  - `npm install`은 lockfile 변경 시만
+- [x] `.env.example` + README의 실행 가이드
+- [x] `/health` 엔드포인트 (`available_models` 반환)
+- [x] 작업 단위 사용량 로그 (`data/logs/usage.log`, JSONL, USD 비용 포함)
+- [x] README.md / README.en.md 작성 (설치/실행/문제 해결)
 
 ### 검증
 
 ```bash
 git clone <repo>
-cd pdf-slide-extractor
-cp .env.example .env
-# ANTHROPIC_API_KEY 채우기
-docker-compose up --build
-# http://localhost:3000 접속, 끝까지 동작
+cd pdftomd
+copy .env.example .env
+# ANTHROPIC_API_KEY 또는 GEMINI_API_KEY 또는 OPENAI_API_KEY 채우기
+start_server.bat
+# http://localhost:9017 접속, 끝까지 동작
 ```
 
 **완료 기준**:
 - README 따라하면 새 머신에서 5분 안에 띄움
-- 한 사이클이 메모리 누수 없이 돈다 (3~4번 연속 실행 후 docker stats 확인)
+- 한 사이클이 메모리 누수 없이 돈다
 
-**예상 기간**: 1~2일
+**예상 기간**: 1~2일 (실제: 완료)
 
 ---
 
-## M5. 폴리싱 & 회귀
+## M5. 폴리싱 & 회귀 — 진행 중
 
 ### 작업
 
 - [ ] 골든 데이터셋 추가 (다른 형식 슬라이드 PDF 1~2개)
 - [ ] 프롬프트 튜닝: 평가 결과 분석 → 시스템 프롬프트 보강
-- [ ] 결과 미리보기 (옵션) — `/jobs/:id/done`에서 슬라이드별 카드
+- [ ] 결과 미리보기 (옵션) — 슬라이드별 카드
 - [ ] 페이지 처리 실패 시 부분 결과로라도 ZIP 생성 (graceful degradation)
 - [ ] CI 워크플로우 (GitHub Actions)
 
 **완료 기준**: 본인 외 다른 사람이 사용해도 큰 문제 없음.
 
 **예상 기간**: 2~3일 (개선이라 무한정 늘어날 수 있음)
+
+---
+
+## 포스트-출시 추가 작업 (2026-04-29 시점)
+
+원래 ROADMAP에 없었지만 출시 후 추가/완료된 항목:
+
+- [x] **OpenAI 어댑터** (`pipeline/providers/openai.py`): GPT-5 mini, GPT-5.4 mini 추가. Strict JSON Schema 변환(`_prepare_strict_schema`)과 단위 테스트(`tests/test_openai_schema.py`).
+- [x] **사용량 로그**: `pipeline/usage_log.py` — 작업 1건당 1줄 JSONL, 모델별 USD 가격표(`MODEL_PRICES_USD_PER_M`)에서 비용 자동 계산. 원본 PDF 파일명·job_id 포함.
+- [x] **모델별 max_tokens 벤더 max로 상향**: Claude 64k, Gemini 65,536, OpenAI 128k. 큰 페이지의 응답 잘림 방지.
+- [x] **한국어 번역 프롬프트 명문화 + 안티-반복 가드**: 중국어 슬라이드에서 Gemini 3가 한글 자모 무한 반복하던 회귀 수정.
+- [x] **CLI에 비용 출력**: `python -m app.cli ... --model X` 종료 시 stderr에 추정 USD 비용 출력.
+- [x] **Windows 더블클릭 런처** + 클린 설치 시 의존성 자동 동기화.
 
 ---
 
@@ -223,13 +242,11 @@ docker-compose up --build
 
 1. **M5 폴리싱** — 일단 기본은 동작하니까
 2. **M3의 미리보기 기능** — 다운로드 버튼만 있어도 도구 목적은 달성
-3. **M4의 비용 로그** — 본인이 API 콘솔에서 봐도 됨
 
 자르면 안 되는 것:
 
 - M1의 골든 데이터 검증 (이거 없으면 LLM 출력이 좋은지 알 수 없음)
-- M2의 청소 스크립트 (디스크 무한 증가)
-- M4의 README (3개월 뒤 본인이 못 띄움)
+- M4의 README + 비용 로그 (3개월 뒤 본인이 못 띄움 / 비용 가시성 0)
 
 ## 위험 / 미정
 

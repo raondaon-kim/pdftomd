@@ -86,13 +86,14 @@ output.zip
 | 출력 모드 | **종합 재처리** (시각자료 의미를 텍스트에 통합) | 데이터 재처리(RAG/파인튜닝) 용도 |
 | 처리 구조 | **2-pass** (1패스: 강의 맥락 추출 → 2패스: 페이지별 상세) | 블록 코드/복잡 다이어그램에서 환각 감소 |
 | 1패스 실패 처리 | **strict** (1패스 실패 = 작업 실패) | 결과 품질의 일관성 보장 |
-| LLM | **3개 모델 사용자 선택**: Claude Haiku 4.5 / Gemini 2.5 Flash / Gemini 3 Flash | 비용·품질·도메인에 따라 사용자 선택 가능 |
-| 어댑터 | `LLMProvider` Protocol로 모델별 SDK 차이 흡수 | Tool Use vs responseSchema 등을 한 인터페이스로 |
+| LLM | **5개 모델 사용자 선택**: Claude Haiku 4.5 / Gemini 2.5 Flash / Gemini 3 Flash / GPT-5 mini / GPT-5.4 mini | 비용·품질·도메인에 따라 사용자 선택 가능 |
+| 어댑터 | `LLMProvider` Protocol로 모델별 SDK 차이 흡수 | Tool Use(Anthropic) / responseSchema(Gemini) / Strict JSON(OpenAI) 한 인터페이스로 |
 | 백엔드 | FastAPI | 파이썬 PDF 생태계와의 궁합 |
 | 프론트 | Next.js (App Router) | SSR 불필요하지만 라우팅·DX가 깔끔 |
-| 작업 큐 | Redis + RQ | Celery보다 가볍고 단일 노드에 충분 |
+| 작업 큐 | **FastAPI BackgroundTasks + InMemoryJobStore** | 단일 사용자/프로세스에 충분, 외부 의존성 0 |
 | 처리 모델 | 비동기 + 폴링 (1초 간격) | 28페이지 처리 ~3~5분 소요 |
-| 배포 | docker-compose (로컬) | 개인/사내용, 인프라 미니멀 |
+| 배포 | **로컬 실행** (`start_server.bat` / `python -m app.main`) | 개인/사내용, Docker 불필요 |
+| 사용량 로깅 | JSONL `data/logs/usage.log` (모델·토큰·USD 비용·job_id·원본 PDF명) | 사후 비용 집계용 |
 
 ### 모델별 특성 요약
 
@@ -100,8 +101,11 @@ output.zip
 |---|---|---|---|
 | Claude Haiku 4.5 | GA | ~$0.20 | 한국어와 안정성 균형. 비전 양호. |
 | Gemini 2.5 Flash | GA | ~$0.10 | 가장 저렴. 한국어 양호. |
-| Gemini 3 Flash | **Preview** ⚠️ | ~$0.20 | 멀티모달 강세 (블록 코드/복잡 다이어그램에 유리). 사양 변동 가능. |
+| Gemini 3 Flash | GA | ~$0.20 | 멀티모달 강세(블록 코드/복잡 다이어그램에 유리). |
+| GPT-5 mini | GA | ~$0.30 | 비전·추론 안정적, 검증된 멀티모달. |
+| GPT-5.4 mini | GA | ~$0.45 | 비전·추론 강세. GPT-5 mini 대비 약 2배 빠름. |
 
+vendor 가격(USD per 1M tokens)은 `MODEL_PRICES_USD_PER_M`(`backend/app/pipeline/usage_log.py`)에서 한 곳으로 관리합니다.
 자세한 모델 비교는 [LLM_PROMPTS.md §1.4~1.6](LLM_PROMPTS.md) 참조.
 
 ## 비목표 (out of scope)

@@ -53,9 +53,11 @@ App Router를 쓰지만 SSR/SSG 기능은 거의 안 씀 — 그냥 Vite/CRA였�
 │                                                 │
 │   분석 모델                                     │
 │   ┌───────────────────────────────────────────┐ │
-│   │ ⦿ Gemini 3 Flash       베타  ~$0.20/PDF   │ │
+│   │ ⦿ GPT-5 mini                 ~$0.30/PDF   │ │
+│   │ ○ GPT-5.4 mini               ~$0.45/PDF   │ │
 │   │ ○ Claude Haiku 4.5           ~$0.20/PDF   │ │
 │   │ ○ Gemini 2.5 Flash           ~$0.10/PDF   │ │
+│   │ ○ Gemini 3 Flash             ~$0.20/PDF   │ │
 │   └───────────────────────────────────────────┘ │
 │                                                 │
 │              [ 추출 시작 ]                      │
@@ -63,9 +65,9 @@ App Router를 쓰지만 SSR/SSG 기능은 거의 안 씀 — 그냥 Vite/CRA였�
 └─────────────────────────────────────────────────┘
 ```
 
-페이지 로드 시 `GET /models`를 호출해서 라디오 버튼 목록을 동적으로 채움. 비활성 모델은 회색 + 호버 안내("`GEMINI_API_KEY` 환경변수가 설정되지 않았습니다").
+페이지 로드 시 `GET /models`를 호출해서 라디오 버튼 목록을 동적으로 채움. 비활성 모델은 회색 + 호버 안내("`OPENAI_API_KEY` / `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` 환경변수가 설정되지 않았습니다").
 
-기본 선택은 사용 가능한 첫 번째 모델 (서버에서 결정한 우선순위 순서대로).
+기본 선택은 **`gpt-5-mini`가 활성화돼 있으면 그것**, 아니면 `enabled: true`인 첫 번째 모델. (frontend/app/page.tsx 참조)
 
 상태:
 - 초기 진입: `GET /models` 호출, 드롭존 + 모델 라디오 표시
@@ -81,7 +83,7 @@ App Router를 쓰지만 SSR/SSG 기능은 거의 안 씀 — 그냥 Vite/CRA였�
 ┌─────────────────────────────────────────────────┐
 │                                                 │
 │   📄 deepco_kdc_18.pdf                          │
-│   분석 모델: Gemini 3 Flash (베타)              │
+│   분석 모델: GPT-5 mini                          │
 │                                                 │
 │   처리 중... 12 / 28 페이지                     │
 │                                                 │
@@ -182,12 +184,12 @@ lib/
 ### 5.1 `lib/api.ts`
 
 ```typescript
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:9007';
 
 export interface ModelInfo {
   id: string;
   display_name: string;
-  provider: 'anthropic' | 'google';
+  provider: 'anthropic' | 'google' | 'openai';
   is_preview: boolean;
   enabled: boolean;
   estimated_cost_per_pdf_usd: number;
@@ -313,16 +315,17 @@ function stepLabel(step: string | null): string {
 | 사용자가 처리 중 페이지 닫음 | 작업은 계속 진행. URL 다시 들어오면 폴링 재개 |
 | 1시간 후 결과 만료 | "결과가 만료되었습니다" 안내 + 새로 추출 버튼 |
 | 다운로드 후 같은 PDF 또 처리 | 항상 새 job_id 발급 (중복 검사 안 함, 단순함) |
-| 동시에 다른 PDF 업로드 시도 | 백엔드 큐에 줄 서고, UI는 그냥 진행 (개인용이라 동시 거의 없음) |
+| 동시에 다른 PDF 업로드 시도 | 단일 프로세스 BackgroundTasks가 순차 처리 (개인용이라 동시 거의 없음) |
 | 업로드 중 네트워크 끊김 | fetch 에러 표시, 다시 시도 가능 |
+| 서버 재시작 중 진행 중이던 작업 | `InMemoryJobStore` 휘발 — UI에 "작업을 찾을 수 없음" 표시 |
 
 ## 7. 환경 변수
 
 ```
-NEXT_PUBLIC_API_BASE=http://localhost:8000
+NEXT_PUBLIC_API_BASE=http://localhost:9007
 ```
 
-`.env.local`에 두고 docker-compose에서 `API_BASE=http://backend:8000` 식으로 다르게 줄 수 있음.
+dev 서버는 `start_server.bat`이 `BACKEND_PORT`/`FRONTEND_PORT`를 함께 설정합니다. 포트를 바꾸면 이 값을 함께 갱신.
 
 ## 8. 비목표
 

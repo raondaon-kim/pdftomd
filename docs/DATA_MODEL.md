@@ -2,8 +2,8 @@
 
 이 도구는 영구 저장소(DB)를 쓰지 않습니다. 모든 데이터는:
 
-- **Redis**: job 상태, 진행률 (TTL 1시간)
-- **파일시스템**: PDF 입력, 결과 ZIP, 이미지
+- **InMemoryJobStore**: job 상태, 진행률 (프로세스 메모리, 재시작 시 휘발)
+- **파일시스템**: PDF 입력, 결과 ZIP, 이미지, **사용량 로그(JSONL)**
 
 ## 1. Pydantic 모델
 
@@ -39,6 +39,7 @@ class Job(BaseModel):
     job_id: str               # UUID v4
     status: JobStatus
     model_id: str             # "claude-haiku-4-5" 등 — 작업 생성 시 결정, 변경 불가
+    pdf_filename: str         # 사용자가 업로드한 원본 파일명 (usage.log 기록용)
     total_pages: int = 0
     processed_pages: int = 0
     progress_pct: int = 0     # 0~100
@@ -117,88 +118,136 @@ class PipelineResult(BaseModel):
     total_pages: int
 ```
 
-## 2. Redis 스키마
+## 2. InMemoryJobStore
 
-### 2.1 키 네이밍
-
-| 키 | 타입 | TTL | 용도 |
-|---|---|---|---|
-| `job:{job_id}` | Hash | 1h | Job 모델 직렬화 |
-| `job:{job_id}:pages` | List | 1h | 처리 완료된 PageAnalysis JSON 누적 |
-| `rq:queue:pdf-jobs` | List | - | RQ가 관리하는 작업 큐 |
-| `rq:job:{rq_job_id}` | Hash | - | RQ 내부 |
-
-### 2.2 Job Hash 필드
-
-`HSET job:{id}`:
-
-```
-status            "processing"
-model_id          "gemini-3-flash"
-total_pages       "28"
-processed_pages   "12"
-progress_pct      "43"
-current_step      "analyzing_page"
-current_page      "12"
-created_at        "2026-04-28T05:30:00Z"
-started_at        "2026-04-28T05:30:05Z"
-finished_at       ""
-error_code        ""
-error_message     ""
-error_page        ""
-pdf_filename      "deepco_kdc_18"
-```
-
-### 2.3 진행률 업데이트 패턴
-
-워커가 페이지 N을 처리할 때:
+작업 상태는 외부 의존성 없이 프로세스 메모리에 보관됩니다
+(`backend/app/core/job_store.py`).
 
 ```python
-def on_page_started(redis, job_id: str, page_num: int):
-    redis.hset(f"job:{job_id}", mapping={
-        "current_page": str(page_num),
-        "current_step": "analyzing_page",
-    })
-    redis.expire(f"job:{job_id}", 3600)
+class InMemoryJobStore:
+    def __init__(self) -> None:
+        self._jobs: dict[str, Job] = {}
+        self._lock = threading.Lock()
 
-def on_page_done(redis, job_id: str, page_num: int, analysis: PageAnalysis, total: int):
-    redis.rpush(f"job:{job_id}:pages", analysis.model_dump_json())
-    progress = int((page_num / total) * 100)
-    redis.hset(f"job:{job_id}", mapping={
-        "processed_pages": str(page_num),
-        "progress_pct": str(progress),
-    })
-    redis.expire(f"job:{job_id}:pages", 3600)
+    def create(self, *, job_id, model_id, pdf_filename, total_pages) -> Job: ...
+    def get(self, job_id: str) -> Job | None: ...
+    def list(self) -> list[Job]: ...
+    def delete(self, job_id: str) -> bool: ...
+
+    def mark_started(self, job_id: str) -> None: ...
+    def mark_done(self, job_id: str) -> None: ...
+    def mark_failed(self, job_id: str, *, code, message, page=None) -> None: ...
+    def update_progress(self, job_id: str, *, step, current_page=None,
+                        processed_pages=None, progress_pct=None) -> None: ...
 ```
 
-폴링하는 API는 `HGETALL job:{id}`만 하면 모든 필드 한번에 조회.
+전역 싱글턴은 `app.core.job_store.get_job_store()`로 접근하며, 백그라운드 워커
+(`api/worker.py`)와 API 핸들러(`api/jobs.py`)가 동일 인스턴스를 공유합니다.
+모든 변경은 `threading.Lock`으로 직렬화됩니다.
 
-## 3. 파일시스템 레이아웃
+### 2.1 라이프사이클
+
+| 시점 | 호출 | 결과 상태 |
+|---|---|---|
+| `POST /jobs` 처리 직후 | `create(...)` | `queued`, `progress_pct=0` |
+| 워커 진입 | `mark_started(job_id)` | `processing`, `started_at=now` |
+| 페이지 처리 중 | `update_progress(...)` | `current_step`, `progress_pct` 갱신 |
+| 정상 종료 | `mark_done(job_id)` | `done`, `progress_pct=100`, `finished_at=now` |
+| 실패 | `mark_failed(job_id, code=..., message=...)` | `failed`, `error` 채워짐 |
+
+**휘발성 주의**: 서버 재시작 시 `_jobs` dict이 비워지고 진행 중이던
+`BackgroundTasks` 태스크도 함께 사라집니다. 결과 디렉토리(`outputs/{job_id}/`)는
+디스크에 남지만 API로는 더 이상 조회되지 않습니다.
+
+### 2.2 클라우드 이전 시
+
+같은 메서드 시그니처로 Redis/Postgres 백엔드 구현체를 끼워 넣을 수 있도록
+인터페이스가 분리돼 있습니다(`get_job_store()`만 교체).
+
+## 3. 사용량 로그 (`logs/usage.log`)
+
+`backend/app/pipeline/usage_log.py`가 **작업 1건당 1줄**의 JSONL을
+`<DATA_DIR>/logs/usage.log`에 누적 기록합니다. 실패한 작업도 기록(`ok: false`).
+
+### 3.1 레코드 스키마
+
+```jsonc
+{
+  "ts": "2026-04-29T08:04:07.029979+00:00",  // UTC ISO-8601
+  "job_id": "550e8400-...",                  // POST /jobs로 발급된 UUID (없는 경우 생략)
+  "pdf": "강의자료.pdf",                      // 원본 업로드 파일명 (input.pdf 아님)
+  "model": "gpt-5.4-mini",                   // 사용된 모델 ID
+  "input_tokens": 169349,
+  "output_tokens": 11412,
+  "total_tokens": 180761,
+  "pages": 28,
+  "input_cost_usd": 0.127012,                // 모델 가격표에 있을 때만
+  "output_cost_usd": 0.051354,
+  "total_cost_usd": 0.178366,
+  "ok": true,
+  "error": "LLMSchemaValidationError: ..."   // ok=false일 때만
+}
+```
+
+비용 필드는 `MODEL_PRICES_USD_PER_M`(같은 모듈)에 가격이 등록된 모델만 채워집니다.
+가격이 없는 모델은 비용 3개 필드가 **생략**됩니다(0이 아님).
+
+### 3.2 가격표 (USD per 1M tokens)
+
+| 모델 | input | output |
+|---|---|---|
+| `claude-haiku-4-5` | 1.00 | 5.00 |
+| `gemini-2-5-flash` | 0.30 | 2.50 |
+| `gemini-3-flash` | 0.50 | 3.00 |
+| `gpt-5-mini` | 0.25 | 2.00 |
+| `gpt-5.4-mini` | 0.75 | 4.50 |
+
+### 3.3 jq 집계 예시
+
+```bash
+# 모델별 누적 비용
+jq -s 'group_by(.model) | map({model: .[0].model, total_usd: (map(.total_cost_usd // 0) | add)})' \
+  data/logs/usage.log
+
+# 비용 상위 5개 PDF
+jq -s 'sort_by(-(.total_cost_usd // 0))[:5] | .[] | {pdf, model, total_cost_usd}' \
+  data/logs/usage.log
+
+# 실패한 작업 목록
+jq 'select(.ok == false) | {ts, pdf, model, error}' data/logs/usage.log
+```
+
+**구버전과의 호환**: 비용 필드 도입 이전의 라인은 비용이 비어 있을 수 있어
+집계 시 `// 0` (jq) 또는 `.fillna(0)` (pandas)로 채워서 처리합니다.
+
+## 4. 파일시스템 레이아웃
 
 ```
-/data/
+<DATA_DIR>/
 ├── uploads/
 │   └── {job_id}/
-│       └── input.pdf                 # 원본 (1시간 후 삭제)
+│       └── input.pdf                 # 원본 (수동 정리)
 │
-└── outputs/
-    └── {job_id}/
-        ├── pages/                    # 임시: 렌더링된 페이지 PNG들
-        │   ├── page-01.png
-        │   ├── page-02.png
-        │   └── ...
-        ├── images/                   # 최종: 크롭된 시각자료
-        │   ├── 06_데이터분석모델.png
-        │   ├── 07_모델생성프로세스.png
-        │   └── ...
-        ├── content.md                # 최종 마크다운
-        └── result.zip                # 다운로드 대상
+├── outputs/
+│   └── {job_id}/
+│       ├── pages/                    # 임시: 렌더링된 페이지 PNG들 (작업 직후 삭제)
+│       │   ├── page-01.png
+│       │   └── ...
+│       ├── images/                   # 최종: 크롭된 시각자료
+│       │   ├── 06_데이터분석모델.png
+│       │   └── ...
+│       ├── content.md                # 최종 마크다운
+│       └── result.zip                # 다운로드 대상
+│
+└── logs/
+    └── usage.log                     # JSONL 누적 (위 §3 참조)
 ```
 
 처리 완료 후 `pages/` 폴더는 즉시 삭제 (임시 자료).
-1시간 후 cron job이 `outputs/{job_id}/` 와 `uploads/{job_id}/` 를 모두 삭제.
+`outputs/{job_id}/` 와 `uploads/{job_id}/` 의 자동 정리는 v1에서는 미구현 —
+운영자가 OS 작업 스케줄러로 직접 정리합니다 (INFRA.md §7 참고).
 
-## 4. 이미지 파일명 규칙
+## 5. 이미지 파일명 규칙
 
 ```
 {page_num:02d}_{slug}.png
@@ -220,7 +269,7 @@ def slugify_korean(text: str, max_len: int = 30) -> str:
     return text[:max_len]
 ```
 
-## 5. 마크다운 출력 형식
+## 6. 마크다운 출력 형식
 
 `content.md` 구조 (종합 재처리 — 시각자료 의미가 텍스트에 통합됨, 1패스 맥락이 헤더에 포함됨):
 
@@ -290,36 +339,37 @@ def slugify_korean(text: str, max_len: int = 30) -> str:
 - `cover` 분류 페이지는 마크다운에 안 나타남
 - `section_divider` 페이지는 `## 슬라이드 N — {title}`만 남기고 본문 비움
 
-## 6. 데이터 흐름 다이어그램 (요약)
+## 7. 데이터 흐름 다이어그램 (요약)
 
 ```
 PDF 업로드
    │
    ▼
-[FastAPI] save → /data/uploads/{job_id}/input.pdf
+[FastAPI] save → <DATA_DIR>/uploads/{job_id}/input.pdf
    │
    ▼
-[FastAPI] redis.hset → job:{id} = {status: queued, ...}
-[FastAPI] queue.enqueue → rq:queue:pdf-jobs
+[FastAPI] store.create(...) → InMemoryJobStore[{id}] = Job(status=queued, ...)
+[FastAPI] background_tasks.add_task(run_pipeline_job, ...)
    │
    ▼
-[Worker] dequeue → run_pipeline(job_id)
+[BG Worker] run_pipeline(job_id)
    │
-   ├─ pdfinfo / 검증 → job.total_pages 갱신
-   ├─ pdftoppm → /data/outputs/{job_id}/pages/*.png
+   ├─ pdfinfo / 검증 → store.update_progress
+   ├─ pdftoppm → <DATA_DIR>/outputs/{job_id}/pages/*.png
    ├─ pdfplumber → 페이지별 plain text (메모리)
    │
    ├─ for each page:
-   │     ├─ Claude API → PageAnalysis
-   │     ├─ if image_region: PIL crop → /data/outputs/{job_id}/images/...
-   │     └─ redis update progress
+   │     ├─ provider.call_page_analysis → PageAnalysis
+   │     ├─ if image_region: PIL crop → outputs/{job_id}/images/...
+   │     └─ store.update_progress
    │
-   ├─ build content.md → /data/outputs/{job_id}/content.md
-   ├─ zip → /data/outputs/{job_id}/result.zip
-   └─ rm /data/outputs/{job_id}/pages/  (임시 정리)
+   ├─ build content.md → outputs/{job_id}/content.md
+   ├─ zip → outputs/{job_id}/result.zip
+   ├─ rm outputs/{job_id}/pages/  (임시 정리)
+   ├─ append_usage_record(...) → logs/usage.log
    │
    ▼
-[Worker] redis.hset → job:{id} = {status: done, finished_at: ...}
+[BG Worker] store.mark_done(job_id) → status=done, finished_at=now
    │
    ▼
 [FastAPI] /jobs/{id}/download → result.zip

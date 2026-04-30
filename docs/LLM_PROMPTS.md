@@ -42,42 +42,51 @@
 
 ### 모델 / 공통
 
-이 도구는 **3개의 LLM 모델**을 지원하며 사용자가 작업마다 선택합니다. 1패스와 2패스는 항상 같은 모델을 사용합니다(단순화).
+이 도구는 **5개의 LLM 모델**을 지원하며 사용자가 작업마다 선택합니다. 1패스와 2패스는 항상 같은 모델을 사용합니다(단순화).
 
 | 모델 ID (내부) | 실제 모델명 | 제공자 | 상태 |
 |---|---|---|---|
 | `claude-haiku-4-5` | Claude Haiku 4.5 | Anthropic | GA |
 | `gemini-2-5-flash` | Gemini 2.5 Flash | Google | GA |
-| `gemini-3-flash` | Gemini 3 Flash Preview | Google | **Preview** ⚠️ |
+| `gemini-3-flash` | Gemini 3 Flash | Google | GA |
+| `gpt-5-mini` | GPT-5 mini | OpenAI | GA |
+| `gpt-5.4-mini` | GPT-5.4 mini | OpenAI | GA |
 
-**Gemini 3 Flash는 Preview 상태**라서 사양·가격이 변경될 수 있습니다. 사용자에게 UI에 베타 라벨로 표시합니다.
+모든 모델은 같은 1패스/2패스 시스템 프롬프트를 사용합니다 — 모델별 분기 없음. 차이는 SDK 호출 방식과 JSON 강제 방식뿐이며 어댑터(§1.6)가 흡수합니다.
 
 ### 모델별 호출 차이 (어댑터 흡수 대상)
 
-| 항목 | Claude Haiku 4.5 | Gemini 2.5 Flash | Gemini 3 Flash |
+| 항목 | Claude Haiku 4.5 | Gemini 2.5/3 Flash | GPT-5 / 5.4 mini |
 |---|---|---|---|
-| SDK | `anthropic` | `google-genai` | `google-genai` |
-| JSON 강제 | Tool Use (`tools` + `tool_choice`) | `responseSchema` + `responseMimeType: application/json` | 동일 (+ thought signatures) |
-| temperature 권장 | 0.0 | 0.0 | **1.0** (3.x는 낮추면 looping 위험) |
-| thinking 제어 | 없음 | 없음 | `thinking_level: minimal` (속도/비용 우선) |
-| 이미지 입력 | base64 + media_type | inline_data (base64) | 동일 |
-| 컨텍스트 윈도 | 200K | 1M | 1M |
-| 한국어 OCR | 우수 | 양호 | 우수 |
-| 시각자료 이해 | 양호 | 양호 | 최상 (특히 블록 코드/복잡 다이어그램) |
+| SDK | `anthropic` | `google-genai` | `openai` |
+| JSON 강제 | Tool Use (`tools` + `tool_choice`) | `responseSchema` + `responseMimeType: application/json` | Strict JSON (`response_format=json_schema`, `strict=true`) |
+| temperature 권장 | 0.0 | 2.5: 0.0 / 3: **1.0** (낮추면 looping) | 0.0 |
+| thinking 제어 | 없음 | 3만 `thinking_level: minimal` | 없음 |
+| 이미지 입력 | base64 + media_type | inline_data (base64) | base64 data URL |
+| 컨텍스트 윈도 | 200K | 1M | 400K (5.x mini) |
+| max_tokens | 64,000 | 65,536 | 128,000 |
+| 한국어 OCR | 우수 | 2.5 양호 / 3 우수 | 양호 |
+| 시각자료 이해 | 양호 | 3는 최상 (블록 코드/복잡 다이어그램) | 5.4-mini 양호+ |
 
-**재현성 트레이드오프**: Claude/Gemini 2.5는 temperature=0으로 결정적이지만, Gemini 3는 temperature=1.0이 권장이라 출력이 매번 약간 다릅니다. Gemini 3를 골든셋 평가에 사용할 때는 결과 분산을 인지해야 합니다.
+**재현성 트레이드오프**: Claude/Gemini 2.5/GPT는 temperature=0으로 결정적이지만, Gemini 3는 temperature=1.0이 권장이라 출력이 매번 약간 다릅니다. Gemini 3를 골든셋 평가에 사용할 때는 결과 분산을 인지해야 합니다.
 
 ### 모델별 비용 (28페이지 PDF 기준 추정)
 
-가격은 2026.04 기준 추정치입니다. 정확한 가격은 각사 공식 페이지에서 확인하세요.
+가격은 2026.04 기준입니다. 단일 진실 원천(`MODEL_PRICES_USD_PER_M`,
+`backend/app/pipeline/usage_log.py`)에서 가져옵니다 — 가격이 바뀌면 그 dict만
+갱신하면 모든 곳에 반영됩니다.
 
 | 모델 | 입력가 ($/1M) | 출력가 ($/1M) | 1패스 비용 | 2패스 합계 | PDF 1건 |
 |---|---|---|---|---|---|
-| Claude Haiku 4.5 | $1.0 | $5.0 | ~$0.02 | ~$0.18 | **~$0.20** |
+| Claude Haiku 4.5 | $1.00 | $5.00 | ~$0.02 | ~$0.18 | **~$0.20** |
 | Gemini 2.5 Flash | $0.30 | $2.50 | ~$0.01 | ~$0.10 | **~$0.10** |
 | Gemini 3 Flash | $0.50 | $3.00 | ~$0.02 | ~$0.18 | **~$0.20** |
+| GPT-5 mini | $0.25 | $2.00 | ~$0.03 | ~$0.27 | **~$0.30** |
+| GPT-5.4 mini | $0.75 | $4.50 | ~$0.04 | ~$0.41 | **~$0.45** |
 
-Gemini 2.5 Flash가 가장 저렴, Gemini 3 Flash는 시각 이해 강세라 p.24-25 같은 페이지에서 품질 우위 가능성. Claude Haiku는 한국어와 안정성에서 균형.
+Gemini 2.5 Flash가 가장 저렴, Gemini 3 Flash는 시각 이해 강세, GPT-5 mini는 비전·추론 안정성과 검증된 strict-JSON, GPT-5.4 mini는 GPT 시리즈 중 가장 빠르고 멀티모달 이해 향상. Claude Haiku는 한국어와 안정성에서 균형.
+
+실제 비용은 작업이 끝날 때마다 `data/logs/usage.log`에 USD로 기록됩니다([DATA_MODEL.md §3](DATA_MODEL.md)).
 
 ## 1.6. LLM Provider 어댑터
 
@@ -182,11 +191,49 @@ class GeminiProvider:
             config=config,
         )
         return LectureContext(**json.loads(response.text))
+
+
+# pipeline/providers/openai.py
+class OpenAIProvider:
+    """GPT-5 mini와 GPT-5.4 mini 둘 다 사용. Strict JSON Schema 응답 형식."""
+
+    def __init__(self, api_key: str, model_id: str = "gpt-5.4-mini"):
+        from openai import OpenAI
+        self.client = OpenAI(api_key=api_key)
+        self.model_id = model_id  # "gpt-5-mini" 또는 "gpt-5.4-mini"
+        self.name = model_id
+        self.display_name = _OPENAI_DISPLAY[model_id]
+        self.is_preview = False
+
+    def call_page_analysis(self, page_image_bytes, page_text, page_num, total_pages, context):
+        # response_format=json_schema, strict=true
+        schema = _prepare_strict_schema(PageAnalysis)  # OpenAI Strict 호환 변환
+        response = self.client.chat.completions.create(
+            model=self.model_id,
+            temperature=0.0,
+            max_tokens=128_000,  # 벤더 max
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "page_analysis",
+                    "strict": True,
+                    "schema": schema,
+                },
+            },
+            messages=[
+                {"role": "system", "content": build_system_prompt(context)},
+                {"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": _to_data_url(page_image_bytes)}},
+                    {"type": "text", "text": _build_user_text(page_num, total_pages, page_text)},
+                ]},
+            ],
+        )
+        return PageAnalysis(**json.loads(response.choices[0].message.content))
 ```
 
-### 1.6.3 스키마 변환 (Anthropic Tool ↔ Gemini responseSchema)
+### 1.6.3 스키마 변환 (Anthropic Tool ↔ Gemini responseSchema ↔ OpenAI Strict)
 
-같은 Pydantic 모델을 두 형식으로 변환하는 헬퍼:
+같은 Pydantic 모델을 세 형식으로 변환하는 헬퍼:
 
 ```python
 def pydantic_to_anthropic_tool(model: type[BaseModel], tool_name: str, description: str) -> dict:
@@ -202,14 +249,31 @@ def pydantic_to_gemini_schema(model: type[BaseModel]) -> dict:
     schema = model.model_json_schema()
     # Gemini는 anyOf/oneOf 일부만 지원. 후처리 필요.
     return _normalize_for_gemini(schema)
+
+def _prepare_strict_schema(model_cls: type[BaseModel]) -> dict:
+    """Pydantic → OpenAI Strict JSON Schema.
+
+    Strict 모드 요구사항:
+    - 모든 object의 additionalProperties=false
+    - 모든 필드가 required에 포함 (Optional은 type 리스트로 nullable 표현)
+    - $ref 인라인 (참조 해소)
+    - default/format 등 일부 키워드 제거
+    - anyOf [T, null] → type: [T, "null"]로 평탄화
+    """
+    schema = model_cls.model_json_schema()
+    return _convert_to_openai_strict(schema)
 ```
 
-**주의**: Gemini의 `responseSchema`는 OpenAPI 3.0 Schema의 **부분집합**만 지원합니다. `anyOf`, `oneOf`, `additionalProperties` 같은 일부 필드가 안 먹힐 수 있어요. 우리의 `image_region: BBox | null` 같은 nullable 필드는 Gemini에서 `nullable: true`로 변환 필요. 자세한 건 [Gemini 공식 문서](https://ai.google.dev/gemini-api/docs/structured-output) 참조.
+**주의**:
+- Gemini `responseSchema`는 OpenAPI 3.0 Schema의 **부분집합**만 지원. `anyOf`, `oneOf`, `additionalProperties`가 안 먹힐 수 있어 nullable 필드는 `nullable: true`로 변환.
+- OpenAI Strict는 더 엄격해 모든 object에 `additionalProperties: false`와 모든 필드 required를 강제. nullable은 `type: ["string", "null"]`처럼 type 리스트로 표현. 자세한 건 [OpenAI Structured Outputs 문서](https://platform.openai.com/docs/guides/structured-outputs) 및 `backend/tests/test_openai_schema.py` 참조.
 
 ### 1.6.4 팩토리
 
 ```python
 # pipeline/providers/__init__.py
+_OPENAI_MODEL_IDS = {"gpt-5-mini", "gpt-5.4-mini"}
+
 def make_provider(model_id: str, settings: Settings) -> LLMProvider:
     """모델 ID와 설정으로 provider 인스턴스 생성. 키 미설정 시 ValueError."""
     if model_id == "claude-haiku-4-5":
@@ -224,6 +288,10 @@ def make_provider(model_id: str, settings: Settings) -> LLMProvider:
         if not settings.gemini_api_key:
             raise ValueError("GEMINI_API_KEY가 설정되지 않았습니다.")
         return GeminiProvider(settings.gemini_api_key, variant="3")
+    elif model_id in _OPENAI_MODEL_IDS:
+        if not settings.openai_api_key:
+            raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
+        return OpenAIProvider(settings.openai_api_key, model_id=model_id)
     else:
         raise ValueError(f"알 수 없는 모델: {model_id}")
 
@@ -865,7 +933,42 @@ response = self.client.models.generate_content(
 analysis = PageAnalysis(**json.loads(response.text))
 ```
 
-### 5.4 공통 후처리 — Pydantic 검증
+### 5.4 OpenAI — Strict JSON Schema
+
+GPT-5/5.4 mini는 `response_format`에 `json_schema`를 지정하고 `strict: true`로 스키마 준수를 강제합니다:
+
+```python
+# OpenAI provider 내부
+schema = _prepare_strict_schema(PageAnalysis)
+# → 모든 object에 additionalProperties=false, 모든 필드 required,
+#   $ref 인라인, anyOf [T, null] → type: [T, "null"], default/format 제거
+
+response = self.client.chat.completions.create(
+    model=self.model_id,                      # gpt-5-mini / gpt-5.4-mini
+    temperature=0.0,
+    max_tokens=128_000,                       # 벤더 max (큰 페이지 안전)
+    response_format={
+        "type": "json_schema",
+        "json_schema": {
+            "name": "page_analysis",
+            "strict": True,
+            "schema": schema,
+        },
+    },
+    messages=[
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": data_url}},
+            {"type": "text", "text": user_text},
+        ]},
+    ],
+)
+analysis = PageAnalysis(**json.loads(response.choices[0].message.content))
+```
+
+스키마 변환(`_prepare_strict_schema`) 동작은 `backend/tests/test_openai_schema.py`에 단위 테스트로 고정돼 있습니다.
+
+### 5.5 공통 후처리 — Pydantic 검증
 
 어떤 모델이든 응답을 받으면 동일하게 Pydantic으로 재검증:
 
@@ -877,7 +980,7 @@ except ValidationError as e:
     raise LLMSchemaValidationError(str(e))
 ```
 
-### 5.5 모델별 함정 (개발 시 주의)
+### 5.6 모델별 함정 (개발 시 주의)
 
 **Claude**:
 - `tool_choice`로 강제하지 않으면 가끔 자연어 응답을 함 → 항상 `{"type": "tool", "name": ...}` 명시
@@ -892,6 +995,13 @@ except ValidationError as e:
 - `thinking_level: minimal`을 안 주면 reasoning 토큰을 많이 써서 응답이 느려지고 비싸짐
 - temperature를 0.0으로 강제하면 looping 위험. 1.0 유지
 - thought signatures를 multi-turn에서 다시 보내야 하지만, 우리는 single-turn이라 무시 가능
+
+**OpenAI (GPT-5 / 5.4 mini)**:
+- `response_format=json_schema`에 `strict: true`를 주려면 스키마가 엄격 호환이어야 함 (`_prepare_strict_schema` 변환 필수)
+- `additionalProperties: false`를 빠뜨리면 400 에러 — Pydantic 변환에서 모든 object에 명시적으로 추가
+- nullable은 `anyOf: [T, null]`이 아니라 `type: [T, "null"]` 리스트 형식 — `_convert_to_openai_strict`가 평탄화
+- `max_tokens=128_000` 권장 (벤더 max). 작게 두면 큰 페이지 응답 잘림 + JSON 파싱 실패
+- 토큰 사용량은 `usage.prompt_tokens` / `usage.completion_tokens`로 누적
 
 ## 6. Pydantic 검증
 
@@ -947,23 +1057,31 @@ def denormalize_bbox(bbox: BBox, image_width: int, image_height: int) -> tuple[i
 
 ### 모델별 28페이지 PDF 비용 (대략, 2026.04 기준)
 
-가격은 출시 시점 변동 가능. 실제 비용은 PDF 1건 처리 시 로그로 기록.
+가격은 출시 시점 변동 가능. 실제 비용은 PDF 1건 처리 시 `data/logs/usage.log`에 USD로 기록 ([DATA_MODEL.md §3](DATA_MODEL.md)).
 
 | 모델 | 1패스 | 2패스 합계 | **PDF 1건** |
 |---|---|---|---|
 | Claude Haiku 4.5 | ~$0.02 | ~$0.18 | **~$0.20** |
 | Gemini 2.5 Flash | ~$0.01 | ~$0.10 | **~$0.10** |
 | Gemini 3 Flash | ~$0.02 | ~$0.18 | **~$0.20** |
+| GPT-5 mini | ~$0.03 | ~$0.27 | **~$0.30** |
+| GPT-5.4 mini | ~$0.04 | ~$0.41 | **~$0.45** |
 
 50페이지 PDF는 위의 ~1.5배. 100페이지면 ~3배. 모두 사내용으로 감당 가능한 수준.
 
 ### 비용 로깅
 
-```
-[job=550e... model=gemini-3-flash] pass1=$0.018 pass2=$0.182 total=$0.200
+`logs/usage.log` JSONL 1줄/작업:
+
+```json
+{"ts": "...", "job_id": "550e...", "pdf": "강의자료.pdf",
+ "model": "gpt-5.4-mini", "input_tokens": 169349, "output_tokens": 11412,
+ "total_tokens": 180761, "pages": 28,
+ "input_cost_usd": 0.127012, "output_cost_usd": 0.051354,
+ "total_cost_usd": 0.178366, "ok": true}
 ```
 
-향후 사용 모델별 비용 누적을 보고 싶으면 Redis에 별도 카운터를 두는 것도 고려. v1은 로그만.
+CLI(`python -m app.cli ...`)는 작업 종료 시 stderr에 추정 총비용을 함께 출력합니다.
 
 ## 9. 프롬프트 개선 사이클
 
