@@ -3,13 +3,16 @@
 Wraps ``runner.run_pipeline`` with:
 - progress reporting into ``InMemoryJobStore``
 - exception handling that maps pipeline errors to ``JobError`` codes
+- optional webhook notification on completion / failure
 """
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from app.core.config import get_settings
+import httpx
+
+from app.core.config import get_settings  # settings still used for dpi/limits/paths
 from app.core.job_store import InMemoryJobStore, get_job_store
 from app.pipeline.pdf_io import PDFValidationError
 from app.pipeline.providers import LLMAuthError, LLMError, make_provider
@@ -31,12 +34,25 @@ def _make_progress_reporter(store: InMemoryJobStore, job_id: str):
     return _report
 
 
+def _fire_webhook(callback_url: str, payload: dict) -> None:
+    """Best-effort webhook POST — never raises, logs on failure."""
+    try:
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(callback_url, json=payload)
+            resp.raise_for_status()
+        log.info("webhook sent to %s (status=%s)", callback_url, resp.status_code)
+    except Exception as e:  # noqa: BLE001
+        log.warning("webhook failed for %s: %s", callback_url, e)
+
+
 def run_pipeline_job(
     *,
     job_id: str,
     pdf_path: str,
     output_dir: str,
     model_id: str,
+    api_key: str,
+    callback_url: str | None = None,
 ) -> None:
     """Run the full pipeline for ``job_id``. Designed for BackgroundTasks.
 
@@ -48,14 +64,19 @@ def run_pipeline_job(
     store = get_job_store()
     store.mark_started(job_id)
 
+    def _fail(code: str, message: str) -> None:
+        store.mark_failed(job_id, code=code, message=message)
+        if callback_url:
+            _fire_webhook(callback_url, {"job_id": job_id, "status": "failed", "error": {"code": code, "message": message}})
+
     try:
-        provider = make_provider(model_id, settings)
+        provider = make_provider(model_id, api_key)
     except (ValueError, NotImplementedError) as e:
         log.exception("provider construction failed for job %s", job_id)
-        store.mark_failed(job_id, code="MODEL_NOT_AVAILABLE", message=str(e))
+        _fail("MODEL_NOT_AVAILABLE", str(e))
         return
     except LLMAuthError as e:
-        store.mark_failed(job_id, code="LLM_AUTH_ERROR", message=str(e))
+        _fail("LLM_AUTH_ERROR", str(e))
         return
 
     # Fetch the user-visible original filename so the usage log records what
@@ -78,19 +99,21 @@ def run_pipeline_job(
         )
     except PDFValidationError as e:
         log.warning("PDF validation failed for job %s: %s", job_id, e)
-        store.mark_failed(job_id, code="INVALID_PDF", message=str(e))
+        _fail("INVALID_PDF", str(e))
         return
     except LLMAuthError as e:
-        store.mark_failed(job_id, code="LLM_AUTH_ERROR", message=str(e))
+        _fail("LLM_AUTH_ERROR", str(e))
         return
     except LLMError as e:
         log.exception("LLM error for job %s", job_id)
-        store.mark_failed(job_id, code="LLM_API_ERROR", message=str(e))
+        _fail("LLM_API_ERROR", str(e))
         return
     except Exception as e:  # noqa: BLE001 — catch-all for background task safety
         log.exception("pipeline crashed for job %s", job_id)
-        store.mark_failed(job_id, code="INTERNAL_ERROR", message=f"{type(e).__name__}: {e}")
+        _fail("INTERNAL_ERROR", f"{type(e).__name__}: {e}")
         return
 
     store.mark_done(job_id)
     log.info("job %s done", job_id)
+    if callback_url:
+        _fire_webhook(callback_url, {"job_id": job_id, "status": "done"})

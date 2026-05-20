@@ -30,6 +30,7 @@ class InMemoryJobStore:
         model_id: str,
         pdf_filename: str,
         total_pages: int,
+        callback_url: str | None = None,
     ) -> Job:
         job = Job(
             job_id=job_id,
@@ -38,6 +39,7 @@ class InMemoryJobStore:
             pdf_filename=pdf_filename,
             total_pages=total_pages,
             created_at=_utcnow(),
+            callback_url=callback_url,
         )
         with self._lock:
             self._jobs[job_id] = job

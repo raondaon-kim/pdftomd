@@ -48,3 +48,4 @@ class Job(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error: JobError | None = None
+    callback_url: str | None = None

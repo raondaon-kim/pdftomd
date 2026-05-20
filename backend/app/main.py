@@ -23,7 +23,6 @@ from app.core.config import get_settings
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    settings.validate_at_startup()  # require at least one LLM API key
     settings.ensure_data_dirs()
 
     logging.basicConfig(

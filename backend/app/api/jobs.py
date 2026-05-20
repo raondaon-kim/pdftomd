@@ -16,7 +16,7 @@ from app.core.config import get_settings
 from app.core.job_store import get_job_store
 from app.models import Job
 from app.pipeline.pdf_io import PDFValidationError, validate_pdf
-from app.pipeline.providers import ALL_MODEL_IDS, list_available_providers
+from app.pipeline.providers import ALL_MODEL_IDS
 
 log = logging.getLogger(__name__)
 
@@ -79,21 +79,16 @@ async def create_job(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     model: str = Form(...),
+    api_key: str = Form(...),
+    callback_url: str | None = Form(default=None),
 ) -> CreateJobResponse:
     """Accept a PDF and a model id; kick off background processing."""
     settings = get_settings()
     store = get_job_store()
 
-    # 1. Validate model id and key availability.
+    # 1. Validate model id.
     if model not in ALL_MODEL_IDS:
         raise http_error(400, "INVALID_MODEL", f"Unknown model id: {model}")
-    available = {info.id: info.enabled for info in list_available_providers(settings)}
-    if not available.get(model, False):
-        raise http_error(
-            400,
-            "MODEL_NOT_AVAILABLE",
-            f"Model '{model}' is not enabled (API key missing)",
-        )
 
     # 2. Validate file shape (extension + magic bytes).
     if not file.filename or not file.filename.lower().endswith(".pdf"):
@@ -146,6 +141,7 @@ async def create_job(
         model_id=model,
         pdf_filename=file.filename,
         total_pages=total_pages,
+        callback_url=callback_url,
     )
     background_tasks.add_task(
         run_pipeline_job,
@@ -153,6 +149,8 @@ async def create_job(
         pdf_path=str(target_path),
         output_dir=str(output_dir),
         model_id=model,
+        api_key=api_key,
+        callback_url=callback_url,
     )
 
     return CreateJobResponse(

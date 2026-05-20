@@ -6,7 +6,6 @@ sibling modules.
 """
 from __future__ import annotations
 
-from app.core.config import Settings
 from app.pipeline.providers.base import (
     LLMAuthError,
     LLMError,
@@ -29,47 +28,29 @@ from app.pipeline.providers.registry import (
 _OPENAI_MODEL_IDS = {GPT_5_MINI, GPT_5_4_MINI}
 
 
-def _has_api_key(model_id: str, settings: Settings) -> bool:
-    if model_id == CLAUDE_HAIKU_4_5:
-        return bool(settings.anthropic_api_key)
-    if model_id in (GEMINI_2_5_FLASH, GEMINI_3_FLASH):
-        return bool(settings.gemini_api_key)
-    if model_id in _OPENAI_MODEL_IDS:
-        return bool(settings.openai_api_key)
-    return False
+def make_provider(model_id: str, api_key: str) -> LLMProvider:
+    """Construct a provider instance for ``model_id`` using the given API key.
 
-
-def make_provider(model_id: str, settings: Settings) -> LLMProvider:
-    """Construct a provider instance for ``model_id``.
-
-    Raises ``ValueError`` if the model id is unknown or its API key is not set.
+    Raises ``ValueError`` if the model id is unknown or the key is empty.
     """
+    if not api_key:
+        raise ValueError(f"api_key is required for model '{model_id}'")
     if model_id == CLAUDE_HAIKU_4_5:
-        if not settings.anthropic_api_key:
-            raise ValueError("ANTHROPIC_API_KEY is not set")
-        # Local import keeps optional SDKs out of the import graph until needed.
         from app.pipeline.providers.claude import ClaudeHaikuProvider
-        return ClaudeHaikuProvider(settings.anthropic_api_key)
+        return ClaudeHaikuProvider(api_key)
     if model_id in (GEMINI_2_5_FLASH, GEMINI_3_FLASH):
-        if not settings.gemini_api_key:
-            raise ValueError("GEMINI_API_KEY is not set")
         from app.pipeline.providers.gemini import GeminiProvider
         variant = "2-5" if model_id == GEMINI_2_5_FLASH else "3"
-        return GeminiProvider(settings.gemini_api_key, variant=variant)
+        return GeminiProvider(api_key, variant=variant)
     if model_id in _OPENAI_MODEL_IDS:
-        if not settings.openai_api_key:
-            raise ValueError("OPENAI_API_KEY is not set")
         from app.pipeline.providers.openai import OpenAIProvider
-        return OpenAIProvider(settings.openai_api_key, model_id=model_id)
+        return OpenAIProvider(api_key, model_id=model_id)
     raise ValueError(f"Unknown model id: {model_id!r}")
 
 
-def list_available_providers(settings: Settings) -> list[ProviderInfo]:
-    """All known models with ``enabled`` reflecting key availability."""
-    return [
-        get_metadata(mid, enabled=_has_api_key(mid, settings))
-        for mid in ALL_MODEL_IDS
-    ]
+def list_available_providers() -> list[ProviderInfo]:
+    """All known models. ``enabled`` is always True — caller supplies the key at request time."""
+    return [get_metadata(mid, enabled=True) for mid in ALL_MODEL_IDS]
 
 
 __all__ = [

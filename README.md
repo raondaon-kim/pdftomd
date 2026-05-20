@@ -300,9 +300,9 @@ npm run dev
 
 | 변수 | 필수 | 기본값 | 설명 |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | ◐ | — | 비어 있으면 `claude-haiku-4-5`가 UI에서 비활성화 |
-| `GEMINI_API_KEY` | ◐ | — | 비어 있으면 `gemini-2-5-flash` / `gemini-3-flash`가 비활성화 |
-| `OPENAI_API_KEY` | ◐ | — | 비어 있으면 `gpt-5.4-mini`가 UI에서 비활성화 |
+| `ANTHROPIC_API_KEY` | × | — | 설정 시 `claude-haiku-4-5` 활성화. **미설정이어도 서버는 정상 기동됨** |
+| `GEMINI_API_KEY` | × | — | 설정 시 `gemini-2-5-flash` / `gemini-3-flash` 활성화 |
+| `OPENAI_API_KEY` | × | — | 설정 시 `gpt-5-mini` / `gpt-5.4-mini` 활성화 |
 | `MAX_PDF_SIZE_MB` | × | `100` | 업로드 크기 제한 (MB) |
 | `MAX_PDF_PAGES` | × | `100` | 페이지 수 제한 |
 | `RESULT_TTL_SECONDS` | × | `3600` | 결과 보존 시간 (초) — 현재 자동 삭제는 미구현, 메타값만 |
@@ -312,11 +312,7 @@ npm run dev
 | `FRONTEND_PORT` | × | `9017` | 정보용 (`package.json` 스크립트에 하드코딩됨) |
 | `CORS_ORIGINS` | × | `http://localhost:9017` | 콤마 구분 허용 origin |
 
-**◐ = 셋 중 적어도 하나 필수**. 모두 비어 있으면 백엔드가 시작 시 다음 에러로 거부합니다:
-
-```
-RuntimeError: No LLM API key configured. Set ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY in environment / .env.
-```
+> **API 키 없이도 서버가 기동됩니다.** 키는 `POST /jobs` 요청 시 `api_key` 필드로 직접 전달할 수 있습니다 ([§8 백엔드 단독 사용](#백엔드-단독-사용-프론트-없이-api-직접-호출) 참고). env에 키를 설정하면 프론트엔드 UI에서 해당 모델이 활성화되고, 미설정 시 비활성화(회색)로 표시됩니다.
 
 ### 프론트엔드용
 
@@ -436,6 +432,8 @@ python -m app.cli ./test.pdf -o ./out --model gemini-3-flash -v
 |---|---|---|---|
 | `file` | File | ✓ | PDF (UTF-8 한글/공백 파일명 OK) |
 | `model` | string | ✓ | 모델 ID (`/models` 응답 중 하나) |
+| `api_key` | string | ✓ | 해당 모델 공급자의 API 키 (Anthropic / Google / OpenAI) |
+| `callback_url` | string | — | 완료/실패 시 백엔드가 POST할 웹훅 URL (선택) |
 
 응답 `201`:
 
@@ -450,9 +448,18 @@ python -m app.cli ./test.pdf -o ./out --model gemini-3-flash -v
 ```
 
 ```bash
+# 기본 (폴링으로 완료 확인)
 curl -X POST http://localhost:9007/jobs \
   -F "file=@강의자료.pdf" \
-  -F "model=gpt-5.4-mini"
+  -F "model=gpt-5.4-mini" \
+  -F "api_key=sk-proj-..."
+
+# 웹훅 사용 (완료 시 내 서버로 알림)
+curl -X POST http://localhost:9007/jobs \
+  -F "file=@강의자료.pdf" \
+  -F "model=gpt-5.4-mini" \
+  -F "api_key=sk-proj-..." \
+  -F "callback_url=https://my-server.com/notify"
 ```
 
 #### `GET /jobs/{job_id}` — 상태 폴링
@@ -484,6 +491,70 @@ curl -X POST http://localhost:9007/jobs \
 
 `204 No Content`. 인메모리 메타와 `uploads/{id}` / `outputs/{id}` 폴더를 함께 삭제합니다.
 
+### 백엔드 단독 사용 (프론트 없이 API 직접 호출)
+
+프론트엔드 없이 백엔드만 사용할 수 있습니다. `.env` 파일이 없어도 서버가 기동되며, API 키는 요청마다 `api_key` 필드로 전달합니다.
+
+#### 1) 서버 기동
+
+```bash
+cd backend
+python -m uvicorn app.main:app --host 127.0.0.1 --port 9007
+```
+
+#### 2) 완료 확인 방법 선택
+
+**방법 A — 폴링** (주기적으로 상태 확인)
+
+```bash
+# 작업 생성
+JOB_ID=$(curl -s -X POST http://localhost:9007/jobs \
+  -F "file=@강의자료.pdf" \
+  -F "model=gpt-5.4-mini" \
+  -F "api_key=sk-proj-..." \
+  | python -c "import sys,json; print(json.load(sys.stdin)['job_id'])")
+
+# 완료될 때까지 5초 간격으로 폴링
+while true; do
+  RESP=$(curl -s http://localhost:9007/jobs/$JOB_ID)
+  STATUS=$(echo $RESP | python -c "import sys,json; print(json.load(sys.stdin)['status'])")
+  echo $RESP
+  [ "$STATUS" = "done" ] || [ "$STATUS" = "failed" ] && break
+  sleep 5
+done
+
+# 결과 다운로드
+curl -OJ http://localhost:9007/jobs/$JOB_ID/download
+```
+
+**방법 B — 웹훅** (완료 시 내 서버로 알림)
+
+```python
+import requests
+
+r = requests.post("http://localhost:9007/jobs",
+    files={"file": ("강의자료.pdf", open("강의자료.pdf","rb"), "application/pdf")},
+    data={
+        "model": "gpt-5.4-mini",
+        "api_key": "sk-proj-...",
+        "callback_url": "https://my-server.com/notify",  # 완료 시 여기로 POST
+    }
+)
+job_id = r.json()["job_id"]
+```
+
+완료 시 `callback_url`로 전달되는 페이로드:
+
+```json
+// 성공
+{"job_id": "550e...", "status": "done"}
+
+// 실패
+{"job_id": "550e...", "status": "failed", "error": {"code": "LLM_API_ERROR", "message": "..."}}
+```
+
+> 웹훅은 **best-effort** — 전송 실패 시 재시도 없이 로그만 기록합니다. 중요한 완료 처리는 폴링을 병행하거나 `GET /jobs/{id}`로 최종 확인하세요.
+
 ## 9. 모델 비교
 
 `backend/tests/golden/deepco_kdc_18/input.pdf` (28페이지 한국어 강의 슬라이드) 기준:
@@ -494,7 +565,7 @@ curl -X POST http://localhost:9007/jobs \
 | Gemini 2.5 Flash | ~2분 | 100% (28/28) | $0.10 | 최저 비용 |
 | Gemini 3 Flash | ~1.5분 | 100% (28/28) | $0.20 | 속도 약 2배 / 복잡 다이어그램 강세 |
 | GPT-5 mini | 측정 예정 | 측정 예정 | $0.30 | GPT-5 시리즈 검증된 비전 + 추론 |
-| GPT-5.4 mini | 측정 예정 | 측정 예정 | $0.45 | 비전·추론 강세, 다이어그램에 유리 |
+| GPT-5.4 mini | ~2분 17초 | 100% (28/28) | $0.45 | 비전·추론 강세, 다이어그램에 유리 |
 
 > 비용은 추정치이며, 페이지 수 / 텍스트 길이 / 이미지 해상도에 따라 변합니다. 현재 frontend 초기 선택은 **GPT-5 mini**.
 
@@ -589,7 +660,7 @@ jq -s 'sort_by(-.total_cost_usd)[0:5] | map({pdf,model,total_cost_usd})' data/lo
 
 | 증상 | 원인 / 해결 |
 |---|---|
-| 백엔드가 `RuntimeError: No LLM API key configured`로 죽음 | `.env`에 `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` 중 하나는 채워야 합니다. `.env`는 프로젝트 루트(=`backend/`의 부모)에 위치 |
+| `MODEL_NOT_AVAILABLE` 또는 `api_key is required` 오류 | `POST /jobs` 시 `api_key` 필드가 비어 있거나 누락된 경우. 해당 모델 공급자의 API 키를 `api_key` 필드로 전달하세요 |
 | `ModuleNotFoundError: No module named 'google.api_core'` (또는 다른 빠진 모듈) | 의존성이 동기화되지 않았습니다. `start_server.bat`을 다시 실행하면 `pip install -e .`이 자동으로 빠진 패키지를 설치합니다. 수동으로 하려면 `cd backend && python -m pip install -e .` |
 | `git pull` 후 의존성 누락 에러 | 누군가 `pyproject.toml`이나 `package.json`을 갱신했을 때 발생. `start_server.bat`이 매 실행마다 `pip install -e .` + `npm install`을 돌려 자동 동기화하므로 그냥 다시 실행하면 됩니다 |
 | `/health`의 `data_dir`이 `\data` 또는 `D:\data`처럼 이상함 | `.env`에 `DATA_DIR=/data`처럼 절대 루트가 들어간 경우. `DATA_DIR=./data`로 바꾸세요 (상대 경로는 프로젝트 루트 기준으로 자동 해석됨) |
