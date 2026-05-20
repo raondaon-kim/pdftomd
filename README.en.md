@@ -212,7 +212,7 @@ pdftomd/
 | Python | **3.11+** |
 | Node.js | **20+** (npm 10+) |
 | OS | Windows 10/11, macOS, Linux all work the same |
-| LLM API key | **`ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` — at least one** |
+| LLM API key | Optional — passed per-request as `api_key` form field; no key required to start the server |
 
 > Docker and Redis are not required. PDF rasterization goes through **PyMuPDF**, so there is no poppler / pdftoppm system dependency either.
 
@@ -229,7 +229,8 @@ cd pdftomd
 
 ```bash
 cp .env.example .env
-# Open .env and fill in at least one of ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY
+# Optional. Keys can be passed per-request as the `api_key` field instead.
+# If you use the frontend UI, fill in the key for the model you want to enable.
 ```
 
 See [§6 Environment variables](#6-environment-variables) for every option.
@@ -301,9 +302,9 @@ Place `.env` at the project root (`pdftomd/`). The backend will find it automati
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | ◐ | — | If empty, `claude-haiku-4-5` is disabled in the UI |
-| `GEMINI_API_KEY` | ◐ | — | If empty, `gemini-2-5-flash` / `gemini-3-flash` are disabled |
-| `OPENAI_API_KEY` | ◐ | — | If empty, `gpt-5.4-mini` is disabled |
+| `ANTHROPIC_API_KEY` | × | — | If set, enables `claude-haiku-4-5` in the UI. **The server starts fine without it** |
+| `GEMINI_API_KEY` | × | — | If set, enables `gemini-2-5-flash` / `gemini-3-flash` in the UI |
+| `OPENAI_API_KEY` | × | — | If set, enables `gpt-5-mini` / `gpt-5.4-mini` in the UI |
 | `MAX_PDF_SIZE_MB` | × | `100` | Upload size limit (MB) |
 | `MAX_PDF_PAGES` | × | `100` | Page count limit |
 | `RESULT_TTL_SECONDS` | × | `3600` | Result retention seconds — currently informational; auto-cleanup is unimplemented |
@@ -313,11 +314,7 @@ Place `.env` at the project root (`pdftomd/`). The backend will find it automati
 | `FRONTEND_PORT` | × | `9017` | Informational (hard-coded in `package.json` scripts) |
 | `CORS_ORIGINS` | × | `http://localhost:9017` | Comma-separated allowed origins |
 
-**◐ = at least one of these is required**. With all empty the backend refuses to start with:
-
-```
-RuntimeError: No LLM API key configured. Set ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY in environment / .env.
-```
+> **API keys are optional at server startup.** You can pass them per-request via the `api_key` field of `POST /jobs` (see [§8 Standalone backend usage](#standalone-backend-usage-calling-the-api-directly)). Setting a key in `.env` makes the corresponding model show as enabled in the frontend UI; leaving it unset shows the model as disabled (greyed out).
 
 ### Frontend
 
@@ -439,6 +436,8 @@ Only models with a configured key have `enabled: true`.
 |---|---|---|---|
 | `file` | File | ✓ | PDF (UTF-8 filenames with Korean / spaces are accepted) |
 | `model` | string | ✓ | model id (one of those returned by `/models`) |
+| `api_key` | string | ✓ | API key for the model's provider (Anthropic / Google / OpenAI) |
+| `callback_url` | string | — | Webhook URL the backend will POST to on completion or failure (optional) |
 
 Response `201`:
 
@@ -453,9 +452,18 @@ Response `201`:
 ```
 
 ```bash
+# Basic (poll for completion)
 curl -X POST http://localhost:9007/jobs \
   -F "file=@lecture.pdf" \
-  -F "model=gpt-5.4-mini"
+  -F "model=gpt-5.4-mini" \
+  -F "api_key=sk-proj-..."
+
+# With webhook (get notified when done)
+curl -X POST http://localhost:9007/jobs \
+  -F "file=@lecture.pdf" \
+  -F "model=gpt-5.4-mini" \
+  -F "api_key=sk-proj-..." \
+  -F "callback_url=https://my-server.com/notify"
 ```
 
 #### `GET /jobs/{job_id}` — poll status
@@ -487,6 +495,70 @@ Path-traversal protected: any `..`, `/`, or `\` returns `400 INVALID_FILENAME`.
 
 `204 No Content`. Removes both the in-memory metadata and `uploads/{id}` / `outputs/{id}` directories.
 
+### Standalone backend usage (calling the API directly)
+
+You can use the backend without the frontend at all. The server starts without any `.env` file — just pass the API key in each request.
+
+#### 1) Start the server
+
+```bash
+cd backend
+python -m uvicorn app.main:app --host 127.0.0.1 --port 9007
+```
+
+#### 2) Choose how to detect completion
+
+**Option A — polling** (periodically check status)
+
+```bash
+# Submit the job
+JOB_ID=$(curl -s -X POST http://localhost:9007/jobs \
+  -F "file=@lecture.pdf" \
+  -F "model=gpt-5.4-mini" \
+  -F "api_key=sk-proj-..." \
+  | python -c "import sys,json; print(json.load(sys.stdin)['job_id'])")
+
+# Poll every 5 seconds until done or failed
+while true; do
+  RESP=$(curl -s http://localhost:9007/jobs/$JOB_ID)
+  STATUS=$(echo $RESP | python -c "import sys,json; print(json.load(sys.stdin)['status'])")
+  echo $RESP
+  [ "$STATUS" = "done" ] || [ "$STATUS" = "failed" ] && break
+  sleep 5
+done
+
+# Download the result
+curl -OJ http://localhost:9007/jobs/$JOB_ID/download
+```
+
+**Option B — webhook** (backend calls your server when done)
+
+```python
+import requests
+
+r = requests.post("http://localhost:9007/jobs",
+    files={"file": ("lecture.pdf", open("lecture.pdf", "rb"), "application/pdf")},
+    data={
+        "model": "gpt-5.4-mini",
+        "api_key": "sk-proj-...",
+        "callback_url": "https://my-server.com/notify",  # called on completion
+    }
+)
+job_id = r.json()["job_id"]
+```
+
+Webhook payload sent to `callback_url`:
+
+```json
+// on success
+{"job_id": "550e...", "status": "done"}
+
+// on failure
+{"job_id": "550e...", "status": "failed", "error": {"code": "LLM_API_ERROR", "message": "..."}}
+```
+
+> Webhook delivery is **best-effort** — on failure the backend logs a warning and does not retry. For critical completions, poll `GET /jobs/{id}` as a fallback.
+
 ## 9. Model comparison
 
 Measured against `backend/tests/golden/deepco_kdc_18/input.pdf` (28-page Korean lecture deck):
@@ -497,7 +569,7 @@ Measured against `backend/tests/golden/deepco_kdc_18/input.pdf` (28-page Korean 
 | Gemini 2.5 Flash | ~2 min | 100% (28/28) | $0.10 | Lowest cost |
 | Gemini 3 Flash | ~1.5 min | 100% (28/28) | $0.20 | ~2× faster, strong on complex diagrams |
 | GPT-5 mini | TBD | TBD | $0.30 | Proven GPT-5 vision + reasoning |
-| GPT-5.4 mini | TBD | TBD | $0.45 | Strong vision + reasoning, great with diagrams |
+| GPT-5.4 mini | ~2 min 17 sec | 100% (28/28) | $0.45 | Strong vision + reasoning, great with diagrams |
 
 > Costs are estimates; actual spend depends on page count, text length, and image resolution. The current default in the UI is **GPT-5 mini**.
 
@@ -592,7 +664,7 @@ jq -s 'sort_by(-.total_cost_usd)[0:5] | map({pdf,model,total_cost_usd})' data/lo
 
 | Symptom | Cause / fix |
 |---|---|
-| Backend dies with `RuntimeError: No LLM API key configured` | At least one of `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` must be set in `.env`. The `.env` file goes at the project root (the parent of `backend/`) |
+| `MODEL_NOT_AVAILABLE` or `api_key is required` error | The `api_key` field was empty or missing in `POST /jobs`. Pass the API key for the chosen model's provider in the `api_key` form field |
 | `ModuleNotFoundError: No module named 'google.api_core'` (or any other missing module) | Dependencies are out of sync. Re-run `start_server.bat` — it runs `pip install -e .` every time, so missing packages get installed automatically. Manual: `cd backend && python -m pip install -e .` |
 | Missing dependency error after `git pull` | Someone bumped `pyproject.toml` or `package.json`. `start_server.bat` re-runs `pip install -e .` + `npm install` on every launch, so just run it again to sync |
 | `/health` reports `data_dir` as `\data` or `D:\data` | Your `.env` has something like `DATA_DIR=/data`, which resolves to the drive root. Use `DATA_DIR=./data` instead — relative paths resolve against the project root |
